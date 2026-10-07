@@ -11,6 +11,9 @@
     cors: { muteSilence: false },
     foreign: { muteSilence: false },
     redirect: { muteSilence: false },
+    muteinsilence: { muteSilence: false },
+    silentloss: { muteSilence: false },
+    lateshadow: { muteSilence: false },
   };
   const scenario = new URLSearchParams(location.search).get("s") || "rate";
   const listeners = [];

@@ -12,8 +12,10 @@
     <p>Lädt das echte <code>content.js</code> mit einem Stub für <code>browser</code>.</p>
     <audio id="media" preload="auto" controls></audio>
     <script>
-      document.getElementById("media").src =
-        new URLSearchParams(location.search).get("s") === "mute" ? "fixtures/ton_kurzpause.wav" : "fixtures/ton_pause.wav";
+      const scenario = new URLSearchParams(location.search).get("s");
+      document.getElementById("media").src = scenario === "mute" ? "fixtures/ton_kurzpause.wav" : "fixtures/ton_pause.wav";
+      // lateshadow: Beim Einschalten soll der Frame kein einziges Medium kennen
+      if (scenario === "lateshadow") document.getElementById("media").remove();
     </script>
     <p><button id="start">Test starten</button></p>
     <div id="result">bereit</div>

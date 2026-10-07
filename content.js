@@ -25,7 +25,8 @@
   const SILENT_INPUT_MS = 5000; // so lange exakt 0 beim Abspielen → Warnung im Popup
   const MIN_MEDIA_S = 5; // kürzere Klänge (Effekte, Klick-Sounds) bekommen keine Audio-Kette
   const MAINTENANCE_MS = 1000;
-  const SHADOW_SCAN_EVERY = 5; // Wartungsläufe zwischen zwei Suchen in Shadow Roots
+  const SHADOW_SCAN_MIN_MS = 5000; // frühestens so oft in Shadow Roots suchen …
+  const SHADOW_SCAN_BUDGET = 0.001; // … und höchstens 0,1 % der Hauptthread-Zeit dafür
   const LINEAR = [0, 0, 1, 1];
 
   let state = { enabled: false, values: SS.clampValues(), rev: -1 };
@@ -35,7 +36,7 @@
   const rateWatched = new WeakSet();
   let pendingSavedMs = 0;
   let maintenanceTimer = null;
-  let maintenanceRuns = 0;
+  let nextShadowScan = 0;
 
   let ctx = null;
   let workletReady = null;
@@ -182,6 +183,11 @@
       return this.values.lookahead && this.values.muteSilence;
     }
 
+    /** Liefert die Kette echte Messwerte? (nicht stumm, Tonspur vorhanden, Quelle nicht fremd) */
+    measurable() {
+      return audible(this.el) && !this.foreign;
+    }
+
     start() {
       if (this.active) return;
       this.active = true;
@@ -244,7 +250,7 @@
     refresh() {
       if (!this.connected) return;
       const v = this.values;
-      const silent = this.detector.phase === "silence" && this.mediaState === "playing";
+      const silent = this.detector.phase === "silence" && this.mediaState === "playing" && this.measurable();
       const phaseRamp = silent ? v.rampIn : v.rampOut;
       const targetRate = silent ? v.silenceSpeed : v.normalSpeed;
       const targetGain = silent && v.muteSilence ? 0 : 1;
@@ -297,20 +303,30 @@
       const v = this.values;
       const windowMs = (frames / ctx.sampleRate) * 1000;
       const levelDb = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
-      const hearable = audible(this.el) && !this.foreign;
+      const hearable = this.measurable();
       const playing = this.mediaState === "playing";
       // Stumme oder fremde Medien liefern nur Nullen – für den Detektor zählen sie wie pausiert
       const mediaState = playing && !hearable ? "muted" : this.mediaState;
       const res = this.detector.update({ windowMs, levelDb, mediaState });
 
-      if (res.changed) this.onPhase(res);
-      this.advanceRamp(windowMs);
-
-      if (playing && res.phase === "silence") {
-        pendingSavedMs += windowMs * Math.max(0, this.ownRate / v.normalSpeed - 1);
+      if (playing && !hearable) {
+        // Ton ohne Ereignis verloren (z. B. Tonspur weg): laufende Beschleunigung beenden
+        if (this.ramp || Math.abs(this.ownRate - v.normalSpeed) > 1e-4 || this.gainTarget !== 1) this.resetOutput();
+      } else {
+        if (res.changed) this.onPhase(res);
+        this.advanceRamp(windowMs);
+        if (playing && res.phase === "silence") {
+          pendingSavedMs += windowMs * Math.max(0, this.ownRate / v.normalSpeed - 1);
+        }
       }
       if (playing && hearable) this.zeroMs = rms === 0 ? this.zeroMs + windowMs : 0;
-      this.lastSample = { ...res, playing, silentInput: this.zeroMs >= SILENT_INPUT_MS };
+      this.lastSample = {
+        ...res,
+        phase: hearable ? res.phase : "sound",
+        playing,
+        foreign: this.foreign,
+        silentInput: this.zeroMs >= SILENT_INPUT_MS,
+      };
     }
 
     onPhase(res) {
@@ -472,7 +488,7 @@
   function noteMedia(el) {
     if (known.has(el)) return;
     known.add(el);
-    if (!maintenanceTimer) maintenanceTimer = setInterval(maintenance, MAINTENANCE_MS);
+    ensureMaintenance();
     browser.runtime.sendMessage({ type: "registerFrame" }).catch(() => {});
   }
 
@@ -600,11 +616,20 @@
     browser.runtime.sendMessage({ type: "addSaved", seconds }).catch(() => {});
   }
 
+  function ensureMaintenance() {
+    if (!maintenanceTimer) maintenanceTimer = setInterval(maintenance, MAINTENANCE_MS);
+  }
+
   function maintenance() {
     flushSaved();
     prune();
-    maintenanceRuns++;
-    if (state.enabled && maintenanceRuns % SHADOW_SCAN_EVERY === 0) startPlaying();
+    // Suche in Shadow Roots: Abstand wächst mit ihrer Dauer, damit große Seiten nicht leiden
+    if (state.enabled && performance.now() >= nextShadowScan) {
+      const t0 = performance.now();
+      startPlaying();
+      const took = performance.now() - t0;
+      nextShadowScan = performance.now() + Math.max(SHADOW_SCAN_MIN_MS, took / SHADOW_SCAN_BUDGET);
+    }
   }
 
   function applyState(next) {
@@ -613,6 +638,8 @@
     state = { enabled: !!next.enabled, values: SS.clampValues(next.values), rev: next.rev };
 
     if (state.enabled && !wasEnabled) {
+      ensureMaintenance();
+      nextShadowScan = performance.now() + SHADOW_SCAN_MIN_MS;
       startPlaying();
     } else if (!state.enabled && wasEnabled) {
       for (const ctrl of controllers.values()) ctrl.stop();
@@ -627,12 +654,10 @@
     for (const el of document.querySelectorAll("video, audio")) noteMedia(el);
     let best = null;
     let unsupportedCount = 0;
-    let silentInputCount = 0;
     for (const el of known) {
       const ctrl = controllers.get(el);
       // Mit Kette heißt fremde Quelle: Ton stumm. Ohne Kette: wird nicht angehängt.
       if (isUnsupported(el)) unsupportedCount++;
-      if (ctrl?.connected && ctrl.zeroMs >= SILENT_INPUT_MS) silentInputCount++;
       const s = ctrl?.lastSample;
       if (!s) continue;
       if (!best || (s.playing && !best.playing) || (s.playing === best.playing && s.levelDb > best.levelDb)) {
@@ -642,12 +667,12 @@
     return {
       mediaCount: known.size,
       unsupportedCount,
-      silentInputCount,
       playing: best ? best.playing : false,
       levelDb: best ? best.levelDb : null,
       thresholdDb: best ? best.thresholdDb : null,
       phase: best ? best.phase : null,
       silentInput: best ? best.silentInput : false,
+      foreign: best ? best.foreign : false,
     };
   }
 

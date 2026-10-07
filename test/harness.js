@@ -196,6 +196,7 @@
     await sleep(1500);
     const l = await level();
     if (l.unsupportedCount !== 1) errors.push(`unsupportedCount ${l.unsupportedCount} statt 1`);
+    if (!l.foreign) errors.push("Angezeigtes Element nicht als fremd gemeldet (Popup zeigte „Stille“)");
     if (media.playbackRate > 1.05) errors.push(`Fremde Quelle mit ${media.playbackRate}x`);
     media.pause();
   }
@@ -218,13 +219,65 @@
     media.pause();
   }
 
-  const SCENARIOS = { rate, mute, muted, disable, override, refresh, elmuted, cors, foreign, redirect };
+  // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell
+  async function muteinsilence(errors) {
+    await media.play();
+    if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) errors.push("Stille nicht beschleunigt");
+    media.muted = true;
+    await sleep(100);
+    send(1, { silenceSpeed: 5 });
+    await sleep(300);
+    if (media.playbackRate > 1.05) errors.push(`Stummes Element nach Regleränderung mit ${media.playbackRate}x`);
+    media.pause();
+  }
+
+  // Ton geht ohne Ereignis verloren (die Seite fängt volumechange ab): Messung erkennt es selbst
+  async function silentloss(errors) {
+    window.addEventListener("volumechange", (e) => e.stopImmediatePropagation(), true);
+    await media.play();
+    if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) errors.push("Stille nicht beschleunigt");
+    media.muted = true;
+    const normal = await waitUntil(() => media.playbackRate <= 1.05, 500);
+    if (!normal) errors.push(`Ohne Ereignis stumm geschaltet, weiter mit ${media.playbackRate}x`);
+    media.pause();
+  }
+
+  // Später eingefügtes Element im offenen Shadow DOM mit autoplay (ohne play()-Aufruf):
+  // nur die regelmäßige Suche kann es finden
+  async function lateshadow(errors) {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const audio = document.createElement("audio");
+    audio.src = "fixtures/ton_pause.wav";
+    audio.loop = true;
+    audio.autoplay = true;
+    host.attachShadow({ mode: "open" }).append(audio);
+    const found = await waitUntil(() => audio.playbackRate > 2, 12000);
+    if (!found) errors.push("Shadow-Element mit autoplay nie beschleunigt");
+    audio.pause();
+  }
+
+  const SCENARIOS = {
+    rate,
+    mute,
+    muted,
+    disable,
+    override,
+    refresh,
+    elmuted,
+    cors,
+    foreign,
+    redirect,
+    muteinsilence,
+    silentloss,
+    lateshadow,
+  };
 
   document.getElementById("start").addEventListener("click", async () => {
     out.textContent = "läuft …";
     const errors = [];
     try {
-      media.currentTime = 0;
+      if (media) media.currentTime = 0;
       await SCENARIOS[globalThis.__scenario](errors);
     } catch (e) {
       errors.push(String(e));
