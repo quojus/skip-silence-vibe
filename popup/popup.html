@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Skip Silence</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <label class="switch-row">
+        <input type="checkbox" id="enabled" />
+        <span class="switch" aria-hidden="true"></span>
+        <span class="title">An in diesem Tab</span>
+      </label>
+      <span id="saved" class="muted"></span>
+    </header>
+
+    <section class="meter-box">
+      <div class="meter" id="meter">
+        <div class="fill" id="meterFill"></div>
+        <div class="line" id="meterThr" title="Schwellwert"></div>
+        <div class="line thin" id="meterHyst" title="Hysterese-Ausstieg"></div>
+      </div>
+      <div class="meter-text">
+        <span id="meterStatus" class="muted">–</span>
+        <span id="meterValues" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="modes">
+      <div class="row">
+        <select id="mode" aria-label="Modus"></select>
+        <span id="modeStatus" class="badge"></span>
+      </div>
+      <div class="row buttons">
+        <button id="btnSave" title="Geladenen Modus mit den aktuellen Werten überschreiben">Speichern</button>
+        <button id="btnSaveAs">Speichern unter…</button>
+        <button id="btnReset" title="Werte des Modus wiederherstellen">Zurücksetzen</button>
+        <button id="btnMore" aria-label="Weitere Aktionen">⋯</button>
+      </div>
+      <div class="row hidden" id="moreMenu">
+        <button id="btnDefault">Als Standard</button>
+        <button id="btnDelete" class="danger">Löschen</button>
+      </div>
+      <form class="row hidden" id="saveAsForm">
+        <input type="text" id="saveAsName" placeholder="Name des Modus" maxlength="40" />
+        <button type="submit">OK</button>
+        <button type="button" id="saveAsCancel">Abbrechen</button>
+      </form>
+      <div class="row hidden" id="deleteConfirm">
+        <span id="deleteText"></span>
+        <button id="deleteYes" class="danger">Ja</button>
+        <button id="deleteNo">Nein</button>
+      </div>
+      <div id="msg" class="msg hidden"></div>
+    </section>
+
+    <section id="sliders" class="controls"></section>
+
+    <section class="ramps">
+      <div class="ramp" id="rampIn">
+        <h3>Übergang „Stille an“</h3>
+      </div>
+      <div class="ramp" id="rampOut">
+        <h3>Übergang „Stille aus“</h3>
+      </div>
+      <p class="muted small">Punkte ziehen · Pfeiltasten verschieben (Shift = grob) · Tasten 1/2 wählen den Punkt</p>
+    </section>
+
+    <script src="../lib/defaults.js"></script>
+    <script src="../lib/bezier.js"></script>
+    <script src="../lib/modes.js"></script>
+    <script src="curve-editor.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -6,10 +6,11 @@ export default [
   js.configs.recommended,
   {
     files: ["**/*.js"],
+    ignores: ["test/**"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",
-      globals: { ...globals.browser, ...globals.webextensions, SS: "readonly", module: "readonly" },
+      globals: { ...globals.browser, ...globals.webextensions, SS: "readonly", CurveEditor: "readonly", module: "readonly" },
     },
   },
   {
@@ -18,6 +19,6 @@ export default [
   },
   {
     files: ["test/**/*.js"],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    languageOptions: { ecmaVersion: 2022, sourceType: "script", globals: { ...globals.node, ...globals.browser } },
   },
 ];

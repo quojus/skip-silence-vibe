@@ -67,10 +67,9 @@ test("dynamisch: Warmup nutzt manuellen Wert", () => {
 });
 test("dynamisch: Perzentil + Abstand", () => {
   const { feed } = make({ dynamicThreshold: true, dynMarginDb: 3 });
-  let r;
-  for (let i = 0; i < 100; i++) r = feed(i % 2 ? -20 : -50);
+  for (let i = 0; i < 100; i++) feed(i % 2 ? -20 : -50);
   feed(-20, 30);
-  r = feed(-20);
+  const r = feed(-20);
   assert.equal(r.thresholdDb, -47);
 });
 test("dynamisch: Grenzen und -Infinity ignoriert", () => {
