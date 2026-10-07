@@ -3,7 +3,7 @@ import { firefox } from "playwright";
 import { serve } from "./serve.mjs";
 
 // === EINSTELLUNGEN ===
-const SCENARIOS = ["rate", "mute", "muted", "disable", "override"];
+const SCENARIOS = ["rate", "mute", "muted", "disable", "override", "refresh", "elmuted", "cors", "foreign", "redirect"];
 const REPEAT = 1; // für Stabilitätsprüfungen erhöhen
 const TIMEOUT_MS = 30000;
 // =====================

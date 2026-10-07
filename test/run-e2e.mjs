@@ -44,19 +44,26 @@ page.on("console", (m) => /Skip Silence/.test(m.text()) && errors.push(`Konsole:
 await page.goto(`${origin}/test/e2e.html`);
 
 const rdp = await connectRdp(port);
-const background = await rdp.backgroundOf(EXTENSION_ID);
+const ext = await rdp.extension(EXTENSION_ID);
+const background = await ext.pageOf(/_generated_background_page|background/);
 
-// Im Background der Extension: alle Tabs einschalten (ohne "tabs"-Berechtigung ist keine
-// Suche per URL möglich; Tabs ohne Content-Script lehnen die Nachricht einfach ab)
-const reached = await background(`async () => {
-  const tabs = await browser.tabs.query({});
-  const results = await Promise.allSettled(tabs.map((t) => browser.tabs.sendMessage(t.id, {
-    type: "applyState",
-    state: { enabled: true, rev: 1000, values: SS.clampValues() },
-  })));
-  return results.filter((r) => r.status === "fulfilled").length;
+// Einschalten auf dem echten Weg: Die Extension öffnet ihre Popup-Seite in einem Tab,
+// von dort geht setEnabled an den Background (wie beim Klick im Popup).
+await page.bringToFront();
+const testTabId = await background(`async () => (await browser.tabs.query({ active: true, currentWindow: true }))[0].id`);
+const popupTarget = ext.pageOf(/popup\/popup\.html/);
+await background(`async () => {
+  await browser.tabs.create({ url: browser.runtime.getURL("popup/popup.html"), active: false });
+  return true;
 }`);
-if (reached < 1) errors.push("Kein Content-Script erreichbar (Host-Berechtigung?)");
+const popup = await popupTarget;
+const enabled = await popup(`async () => {
+  const res = await browser.runtime.sendMessage({ type: "setEnabled", tabId: ${testTabId}, enabled: true });
+  return Boolean(res && res.ok && res.tab.enabled);
+}`);
+if (!enabled) errors.push("setEnabled über die Popup-Seite fehlgeschlagen");
+await page.bringToFront();
+await page.waitForTimeout(300);
 
 for (const name of PLAYERS) {
   const result = await page.evaluate(
@@ -81,13 +88,7 @@ for (const name of PLAYERS) {
   if (!ok) errors.push(`${name}: Stille nicht beschleunigt oder Ton nicht normal`);
 }
 
-const level = await background(`async () => {
-  const tabs = await browser.tabs.query({});
-  const results = await Promise.allSettled(
-    tabs.map((t) => browser.tabs.sendMessage(t.id, { type: "getLevel" }, { frameId: 0 })),
-  );
-  return results.map((r) => r.value).find((v) => v && v.mediaCount > 0) ?? null;
-}`);
+const level = await popup(`async () => browser.tabs.sendMessage(${testTabId}, { type: "getLevel" }, { frameId: 0 })`);
 console.log(`getLevel: ${JSON.stringify(level)}`);
 // DOM + Shadow DOM bleiben bekannt; das pausierte new Audio() (nicht im DOM) wird aufgeräumt
 if (!level || level.mediaCount !== 2) errors.push(`Pegelabfrage: ${level?.mediaCount} statt 2 Medien`);

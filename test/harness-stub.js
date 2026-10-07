@@ -6,6 +6,11 @@
     muted: { muteSilence: true, lookahead: true },
     disable: { muteSilence: true, lookahead: true },
     override: { muteSilence: false },
+    refresh: { muteSilence: false },
+    elmuted: { muteSilence: false },
+    cors: { muteSilence: false },
+    foreign: { muteSilence: false },
+    redirect: { muteSilence: false },
   };
   const scenario = new URLSearchParams(location.search).get("s") || "rate";
   const listeners = [];

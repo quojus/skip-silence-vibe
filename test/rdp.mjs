@@ -1,5 +1,5 @@
 // Minimaler Client für das Firefox Remote Debugging Protocol (Pakete "länge:json").
-// Wird im E2E-Test genutzt, um Code im Background der echten Extension auszuführen.
+// Wird im E2E-Test genutzt, um Code in Seiten der echten Extension (Background, Popup) auszuführen.
 import net from "node:net";
 
 const EVENT_TYPES = new Set([
@@ -65,23 +65,29 @@ export async function connectRdp(port) {
 
   await next((p) => p.from === "root");
 
-  /** Liefert eine Funktion, die JS im Background der Extension auswertet (Ergebnis als JSON). */
-  async function backgroundOf(addonId) {
+  /**
+   * Verbindet sich mit einer Extension. pageOf(muster) liefert eine Funktion, die JS in der
+   * Extension-Seite auswertet, deren URL auf das Muster passt (Background, Popup-Tab, …).
+   */
+  async function extension(addonId) {
     const { addons } = await request("root", "listAddons");
     const addon = addons.find((a) => a.id === addonId);
     if (!addon) throw new Error(`Extension ${addonId} nicht installiert`);
-    // Neuere Firefox-Versionen: Ziele über einen Watcher ermitteln
     const { actor: watcher } = await request(addon.actor, "getWatcher");
-    const targetEvent = next(
-      (p) => p.type === "target-available-form" && p.from === watcher && /background/.test(p.target?.url ?? ""),
-    );
     await request(watcher, "watchTargets", { targetType: "frame" });
-    const consoleActor = (await targetEvent).target.consoleActor;
 
+    async function pageOf(urlPattern) {
+      const ev = await next((p) => p.type === "target-available-form" && p.from === watcher && urlPattern.test(p.target?.url ?? ""));
+      return evaluator(ev.target.consoleActor);
+    }
+    return { pageOf };
+  }
+
+  function evaluator(consoleActor) {
     async function evaluate(text) {
       const { resultID } = await request(consoleActor, "evaluateJSAsync", { text });
       const res = await next((p) => p.type === "evaluationResult" && p.resultID === resultID);
-      if (res.hasException) throw new Error(`Background: ${JSON.stringify(res.exceptionMessage)}`);
+      if (res.hasException) throw new Error(`Extension: ${JSON.stringify(res.exceptionMessage)}`);
       return res.result;
     }
 
@@ -96,14 +102,14 @@ export async function connectRdp(port) {
         const r = await evaluate(`globalThis.${key} ?? ""`);
         if (typeof r === "string" && r) {
           const parsed = JSON.parse(r);
-          if ("err" in parsed) throw new Error(`Background: ${parsed.err}`);
+          if ("err" in parsed) throw new Error(`Extension: ${parsed.err}`);
           return parsed.ok;
         }
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      throw new Error("Background: keine Antwort");
+      throw new Error("Extension: keine Antwort");
     };
   }
 
-  return { backgroundOf, close: () => sock.destroy() };
+  return { extension, close: () => sock.destroy() };
 }

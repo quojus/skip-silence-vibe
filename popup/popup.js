@@ -344,7 +344,8 @@
     thr.style.display = hyst.style.display = "block";
     thr.style.left = pct(b.thresholdDb);
     hyst.style.left = pct(b.thresholdDb + values.hysteresisDb);
-    if (info.silentInput > 0) status.textContent = "Kein Signal – Quelle evtl. nicht unterstützt";
+    // Nur für das angezeigte Element – ein anderes, normal laufendes Element soll nicht gestört werden
+    if (b.silentInput) status.textContent = "Kein Signal – Quelle evtl. nicht unterstützt";
     else status.textContent = !b.playing ? "Pausiert" : b.phase === "silence" ? "Stille" : "Ton";
     vals.textContent = `${de(b.levelDb, 0)} dB · Schwelle ${de(b.thresholdDb, 0)} dB`;
   }
@@ -360,7 +361,7 @@
       const results = await Promise.allSettled(
         frames.map((frameId) => browser.tabs.sendMessage(tabId, { type: "getLevel" }, { frameId })),
       );
-      const info = { reachable: false, mediaCount: 0, unsupported: 0, silentInput: 0, best: null };
+      const info = { reachable: false, mediaCount: 0, unsupported: 0, best: null };
       const dead = frames.filter((f, i) => f !== 0 && results[i].status === "rejected");
       if (dead.length) call({ type: "dropFrames", frameIds: dead }).catch(() => {});
       for (const r of results) {
@@ -369,7 +370,6 @@
         info.reachable = true;
         info.mediaCount += v.mediaCount;
         info.unsupported += v.unsupportedCount;
-        info.silentInput += v.silentInputCount || 0;
         if (v.levelDb === null) continue;
         const b = info.best;
         if (!b || (v.playing && !b.playing) || (v.playing === b.playing && v.levelDb > b.levelDb)) {

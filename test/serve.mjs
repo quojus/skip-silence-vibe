@@ -19,6 +19,11 @@ export function serve() {
   const server = createServer(async (req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname));
     if (path.includes("..")) return res.writeHead(403).end();
+    // /redirect/<pfad> leitet auf denselben Pfad unter "localhost" um – fremde Origin ohne CORS
+    if (path.startsWith("/redirect/")) {
+      const port = req.headers.host.split(":")[1];
+      return res.writeHead(302, { location: `http://localhost:${port}${path.slice("/redirect".length)}` }).end();
+    }
     try {
       const body = await readFile(join(ROOT, path));
       const headers = { "content-type": TYPES[extname(path)] || "application/octet-stream" };

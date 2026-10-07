@@ -7,6 +7,7 @@
   const C = SS.DETECTOR;
   const MEDIA_EVENTS = [
     "loadstart",
+    "volumechange",
     "play",
     "playing",
     "pause",
@@ -22,16 +23,19 @@
   const FADE_SEGMENTS = 16; // Kurve als Folge linearer Rampen – lässt sich jederzeit abbrechen
   const DELAY_SWITCH_S = 0.01; // Ausblenden um einen Wechsel der Verzögerung
   const SILENT_INPUT_MS = 5000; // so lange exakt 0 beim Abspielen → Warnung im Popup
+  const MIN_MEDIA_S = 5; // kürzere Klänge (Effekte, Klick-Sounds) bekommen keine Audio-Kette
   const MAINTENANCE_MS = 1000;
+  const SHADOW_SCAN_EVERY = 5; // Wartungsläufe zwischen zwei Suchen in Shadow Roots
   const LINEAR = [0, 0, 1, 1];
 
   let state = { enabled: false, values: SS.clampValues(), rev: -1 };
   const controllers = new Map(); // HTMLMediaElement → MediaController
-  const known = new Set(); // alle gesehenen Medienelemente
-  const unsupported = new WeakSet();
+  const known = new Set(); // gesehene Medienelemente (wird regelmäßig aufgeräumt)
   const directlyWatched = new WeakSet();
+  const rateWatched = new WeakSet();
   let pendingSavedMs = 0;
   let maintenanceTimer = null;
+  let maintenanceRuns = 0;
 
   let ctx = null;
   let workletReady = null;
@@ -110,7 +114,9 @@
           const source = c.createMediaElementSource(el);
           sourceCreated = true;
           source.connect(worklet);
-          return { worklet, delay, gain };
+          // Geplanter Lautstärkeverlauf und Lookahead-Zustand gehören zur Kette, nicht zum
+          // Controller – so stimmen sie auch, wenn ein neuer Controller die Kette übernimmt
+          return { worklet, delay, gain, gainPts: [{ t: 0, v: 1 }], delayOn: false };
         } catch (err) {
           // Erst nach createMediaElementSource ist das Element dauerhaft gebunden
           if (!sourceCreated) graphs.delete(el);
@@ -137,6 +143,11 @@
     return el.crossOrigin === null;
   }
 
+  /** Ist das Element überhaupt hörbar? Stumm, Lautstärke 0 oder ohne Tonspur liefern nur Nullen. */
+  function audible(el) {
+    return !el.muted && el.volume > 0 && el.mozHasAudio !== false;
+  }
+
   function mediaStateOf(el) {
     if (el.paused || el.ended) return "paused";
     if (el.seeking) return "seeking";
@@ -157,12 +168,10 @@
       this.ownRate = el.playbackRate;
       this.origRate = null;
       this.ramp = null;
-      this.gainPlan = { t0: 0, from: 1, to: 1, dur: 0, bezier: LINEAR };
-      this.delayOn = false;
       this.lastSample = null;
       this.zeroMs = 0;
-      this.tainted = false;
-      el.addEventListener("ratechange", () => this.onRateChange());
+      this.foreign = false; // angehängt, aber Quelle inzwischen fremd → Kette liefert nur Nullen
+      watchRate(el);
     }
 
     get values() {
@@ -205,9 +214,9 @@
       this.detector = new SS.Detector(() => state.values);
       this.ramp = null;
       this.zeroMs = 0;
+      this.foreign = isUnsupported(this.el);
       this.graph.worklet.port.onmessage = (e) => this.onRms(e.data);
-      this.setGain(1, 0);
-      this.setDelay(this.lookaheadOn(), 1);
+      if (!this.setDelay(this.lookaheadOn(), 1) && this.gainTarget !== 1) this.setGain(1, DELAY_SWITCH_S);
       this.setRate(this.values.normalSpeed);
       this.graph.worklet.port.postMessage(true);
     }
@@ -241,14 +250,26 @@
       const targetGain = silent && v.muteSilence ? 0 : 1;
 
       const switched = this.setDelay(this.lookaheadOn(), targetGain);
-      if (!switched && Math.abs(this.gainPlan.to - targetGain) > 1e-6) {
+      if (!switched && Math.abs(this.gainTarget - targetGain) > 1e-6) {
         this.setGain(targetGain, phaseRamp.durationMs / 1000, phaseRamp.bezier);
       }
-      if (this.ramp) this.ramp.to = targetRate;
-      else if (Math.abs(this.ownRate - targetRate) > 1e-4) this.startRamp(targetRate, phaseRamp);
+      const r = this.ramp;
+      if (r && Math.abs(r.to - targetRate) > 1e-4) {
+        // Laufender Übergang: ab dem Ist-Wert mit der Restdauer weiter – nur das Ziel ist neu.
+        // (Nur r.to zu ändern, würde um den schon zurückgelegten Kurvenanteil springen.)
+        const rest = Math.max(1, r.duration - r.elapsed);
+        this.ramp = { from: this.ownRate, to: targetRate, elapsed: 0, duration: rest, bezier: r.bezier };
+      } else if (!r && Math.abs(this.ownRate - targetRate) > 1e-4) {
+        this.startRamp(targetRate, phaseRamp);
+      }
     }
 
     onMediaEvent(type) {
+      if (type === "volumechange") {
+        // Stumm geschaltet: nichts mehr messbar → wie Pause sofort zurück auf Normal
+        if (!audible(this.el)) this.resetOutput();
+        return;
+      }
       if (type === "play" || type === "playing") this.mediaState = "playing";
       else if (type === "seeking") this.mediaState = "seeking";
       else if (type === "waiting") this.mediaState = "waiting";
@@ -256,18 +277,18 @@
       else this.mediaState = "paused"; // pause, ended, emptied
 
       if (type === "loadstart" || type === "emptied") {
-        // Neue Quelle im selben Element: ist sie fremd, liefert die Kette nur noch Stille
-        this.tainted = graphs.has(this.el) && isUnsupported(this.el);
         this.zeroMs = 0;
+        this.foreign = isUnsupported(this.el);
       }
+      // Pause, Spulen, Puffern: sofort zurück auf Normal, damit danach garantiert Ton da ist
+      if (this.mediaState !== "playing") this.resetOutput();
+    }
 
-      if (this.mediaState !== "playing") {
-        // Pause, Spulen, Puffern: sofort zurück auf Normal, damit danach garantiert Ton da ist
-        this.ramp = null;
-        if (this.connected) {
-          this.setRate(this.values.normalSpeed);
-          this.setGain(1, 0);
-        }
+    resetOutput() {
+      this.ramp = null;
+      if (this.connected) {
+        this.setRate(this.values.normalSpeed);
+        this.setGain(1, 0);
       }
     }
 
@@ -276,8 +297,11 @@
       const v = this.values;
       const windowMs = (frames / ctx.sampleRate) * 1000;
       const levelDb = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+      const hearable = audible(this.el) && !this.foreign;
       const playing = this.mediaState === "playing";
-      const res = this.detector.update({ windowMs, levelDb, mediaState: this.mediaState });
+      // Stumme oder fremde Medien liefern nur Nullen – für den Detektor zählen sie wie pausiert
+      const mediaState = playing && !hearable ? "muted" : this.mediaState;
+      const res = this.detector.update({ windowMs, levelDb, mediaState });
 
       if (res.changed) this.onPhase(res);
       this.advanceRamp(windowMs);
@@ -285,8 +309,8 @@
       if (playing && res.phase === "silence") {
         pendingSavedMs += windowMs * Math.max(0, this.ownRate / v.normalSpeed - 1);
       }
-      if (playing) this.zeroMs = rms === 0 ? this.zeroMs + windowMs : 0;
-      this.lastSample = { ...res, playing };
+      if (playing && hearable) this.zeroMs = rms === 0 ? this.zeroMs + windowMs : 0;
+      this.lastSample = { ...res, playing, silentInput: this.zeroMs >= SILENT_INPUT_MS };
     }
 
     onPhase(res) {
@@ -304,7 +328,7 @@
         if (v.muteSilence && this.lookaheadOn()) {
           // Einblenden so planen, dass es kurz vor dem verzögerten Ton fertig ist
           this.setGain(1, Math.min(dur, C.UNMUTE_LEAD_S), v.rampOut.bezier, C.LOOKAHEAD_S - C.UNMUTE_LEAD_S);
-        } else if (this.gainPlan.to !== 1) {
+        } else if (this.gainTarget !== 1) {
           this.setGain(1, dur, v.rampOut.bezier);
         }
       }
@@ -341,45 +365,72 @@
       }
     }
 
-    /** Geplanter Lautstärkewert zur AudioContext-Zeit t (eigene Buchführung, kein Auslesen). */
+    // ----- Lautstärke: eigene Buchführung über exakt die geplanten Punkte -----
+    // gainPts ist der geplante Verlauf als Punktfolge {t, v}: zwischen zwei Punkten linear
+    // (linearRampToValueAtTime), zwei Punkte mit gleichem t sind ein Sprung (setValueAtTime).
+    // So kennt der Controller den echten Ist-Wert, ohne gain.value auszulesen.
+
     gainAt(t) {
-      const p = this.gainPlan;
-      if (t <= p.t0) return p.from;
-      if (p.dur <= 0 || t >= p.t0 + p.dur) return p.to;
-      return p.from + (p.to - p.from) * SS.bezierY(p.bezier, (t - p.t0) / p.dur);
+      const pts = this.graph ? this.graph.gainPts : [{ t: 0, v: 1 }];
+      let i = -1;
+      for (let k = 0; k < pts.length; k++) if (pts[k].t <= t) i = k;
+      if (i < 0) return pts[0].v;
+      const a = pts[i];
+      const b = pts[i + 1];
+      if (!b) return a.v;
+      return a.v + ((b.v - a.v) * (t - a.t)) / (b.t - a.t);
+    }
+
+    get gainTarget() {
+      return this.graph ? this.graph.gainPts.at(-1).v : 1;
+    }
+
+    /** Plant den Verlauf ab jetzt neu: pts[0] ist {t: now, v: Ist-Wert}. */
+    planGain(pts) {
+      const g = this.graph.gain.gain;
+      g.cancelScheduledValues(pts[0].t);
+      g.setValueAtTime(pts[0].v, pts[0].t);
+      for (let i = 1; i < pts.length; i++) {
+        if (pts[i].t <= pts[i - 1].t) g.setValueAtTime(pts[i].v, pts[i].t);
+        else g.linearRampToValueAtTime(pts[i].v, pts[i].t);
+      }
+      this.graph.gainPts = pts;
     }
 
     /** Lautstärke ab jetzt (+delayS) über durS entlang der Kurve auf target bringen. */
     setGain(target, durS, bezier = LINEAR, delayS = 0) {
       if (!this.graph || !ctx) return;
-      const g = this.graph.gain.gain;
       const now = ctx.currentTime;
       const from = clamp(this.gainAt(now), 0, 1);
       const t0 = now + delayS;
       const dur = durS > 0 ? Math.max(durS, MIN_FADE_S) : 0;
-      try {
-        g.cancelScheduledValues(now);
-        g.setValueAtTime(from, now);
-        if (dur === 0) {
-          g.setValueAtTime(target, t0);
-        } else {
-          if (delayS > 0) g.setValueAtTime(from, t0);
-          for (let i = 1; i <= FADE_SEGMENTS; i++) {
-            const y = SS.bezierY(bezier, i / FADE_SEGMENTS);
-            g.linearRampToValueAtTime(clamp(from + (target - from) * y, 0, 1), t0 + (dur * i) / FADE_SEGMENTS);
-          }
+      const pts = [{ t: now, v: from }];
+      if (delayS > 0) pts.push({ t: t0, v: from });
+      if (dur === 0) {
+        pts.push({ t: t0, v: target });
+      } else {
+        for (let i = 1; i <= FADE_SEGMENTS; i++) {
+          const y = SS.bezierY(bezier, i / FADE_SEGMENTS);
+          pts.push({ t: t0 + (dur * i) / FADE_SEGMENTS, v: clamp(from + (target - from) * y, 0, 1) });
         }
-        this.gainPlan = { t0, from, to: target, dur, bezier };
+      }
+      try {
+        this.planGain(pts);
       } catch (err) {
         console.warn("[Skip Silence] Lautstärke-Automation fehlgeschlagen", err);
-        try {
-          g.cancelScheduledValues(0);
-          g.value = target;
-        } catch {
-          // nichts mehr zu retten
-        }
-        this.gainPlan = { t0: now, from: target, to: target, dur: 0, bezier: LINEAR };
+        this.forceGain(target);
       }
+    }
+
+    forceGain(value) {
+      const g = this.graph.gain.gain;
+      try {
+        g.cancelScheduledValues(0);
+        g.value = value;
+      } catch {
+        // nichts mehr zu retten
+      }
+      this.graph.gainPts = [{ t: 0, v: value }];
     }
 
     /**
@@ -388,27 +439,32 @@
      * Liefert true, wenn umgeschaltet wurde.
      */
     setDelay(on, targetGain) {
-      if (!this.graph || !ctx || on === this.delayOn) return false;
-      this.delayOn = on;
-      const g = this.graph.gain.gain;
+      if (!this.graph || !ctx || on === this.graph.delayOn) return false;
+      this.graph.delayOn = on;
       const d = this.graph.delay.delayTime;
       const now = ctx.currentTime;
-      const from = clamp(this.gainAt(now), 0, 1);
       const S = DELAY_SWITCH_S;
       try {
-        g.cancelScheduledValues(now);
-        g.setValueAtTime(from, now);
-        g.linearRampToValueAtTime(0, now + S);
+        this.planGain([
+          { t: now, v: clamp(this.gainAt(now), 0, 1) },
+          { t: now + S, v: 0 },
+          { t: now + 2 * S, v: targetGain },
+        ]);
         d.cancelScheduledValues(now);
         d.setValueAtTime(on ? C.LOOKAHEAD_S : 0, now + S);
-        g.linearRampToValueAtTime(targetGain, now + 2 * S);
-        this.gainPlan = { t0: now + S, from: 0, to: targetGain, dur: S, bezier: LINEAR };
       } catch (err) {
         console.warn("[Skip Silence] Umschalten der Verzögerung fehlgeschlagen", err);
-        this.setGain(targetGain, 0);
+        this.forceGain(targetGain);
       }
       return true;
     }
+  }
+
+  // Ein ratechange-Listener pro Element (nicht pro Controller) – hält keinen alten Controller fest
+  function watchRate(el) {
+    if (rateWatched.has(el)) return;
+    rateWatched.add(el);
+    el.addEventListener("ratechange", () => controllers.get(el)?.onRateChange());
   }
 
   // ---------- Medien finden ----------
@@ -416,19 +472,29 @@
   function noteMedia(el) {
     if (known.has(el)) return;
     known.add(el);
+    if (!maintenanceTimer) maintenanceTimer = setInterval(maintenance, MAINTENANCE_MS);
     browser.runtime.sendMessage({ type: "registerFrame" }).catch(() => {});
+  }
+
+  /** Kurze Klänge brauchen keine Stille-Erkennung – und ihre Kette wäre nie wieder lösbar. */
+  function tooShort(el) {
+    return Number.isFinite(el.duration) && el.duration < MIN_MEDIA_S;
   }
 
   function getController(el) {
     let ctrl = controllers.get(el);
     if (ctrl) return ctrl;
-    if (!graphs.has(el) && isUnsupported(el)) {
-      unsupported.add(el);
-      return null;
-    }
-    unsupported.delete(el);
+    if (!graphs.has(el) && isUnsupported(el)) return null;
     ctrl = new MediaController(el);
     controllers.set(el, ctrl);
+    return ctrl;
+  }
+
+  /** Controller holen und starten, sobald Dauer und Quelle bekannt sind. */
+  function startFor(el) {
+    if (el.readyState < HTMLMediaElement.HAVE_METADATA || tooShort(el)) return null;
+    const ctrl = getController(el);
+    if (ctrl) ctrl.start();
     return ctrl;
   }
 
@@ -443,13 +509,16 @@
   }
 
   function handleMediaEvent(el, type) {
+    if (!state.enabled) {
+      // Ausgeschaltet: nur Elemente im Dokument merken (für die Popup-Anzeige)
+      if (el.isConnected) noteMedia(el);
+      return;
+    }
     noteMedia(el);
-    if (!state.enabled) return;
-    const ctrl = getController(el);
-    if (!ctrl) return;
     if (type === "play" && ctx && ctx.state !== "running") ctx.resume().catch(() => {});
-    if (!ctrl.active && (type === "play" || type === "playing")) ctrl.start();
-    ctrl.onMediaEvent(type);
+    let ctrl = controllers.get(el);
+    if (!ctrl?.active && (type === "play" || type === "playing") && !el.paused) ctrl = startFor(el);
+    if (ctrl) ctrl.onMediaEvent(type);
   }
 
   // Media-Events blubbern nicht, laufen aber durch die Capture-Phase → ein Listener für das ganze Dokument
@@ -482,10 +551,8 @@
       exportFunction(
         function play() {
           try {
-            if (this instanceof HTMLMediaElement && this.getRootNode() !== document) {
-              watchDirectly(this);
-              noteMedia(this);
-            }
+            // Nur Listener anhängen (WeakSet, nichts festhalten); gemerkt wird erst bei Bedarf
+            if (this instanceof HTMLMediaElement && this.getRootNode() !== document) watchDirectly(this);
           } catch {
             // Beobachtung darf die Wiedergabe nie verhindern
           }
@@ -500,17 +567,28 @@
   }
   hookPagePlay();
 
-  /** Alle Medien im Dokument inkl. offener Shadow-Roots. */
+  /** Alle Medien im Dokument inkl. offener (auch verschachtelter) Shadow Roots. */
   function findAllMedia() {
-    const found = [...document.querySelectorAll("video, audio")];
-    for (const host of document.querySelectorAll("*")) {
-      if (!host.shadowRoot) continue;
-      for (const el of host.shadowRoot.querySelectorAll("video, audio")) {
-        watchDirectly(el);
+    const found = [];
+    const scan = (root, inShadow) => {
+      for (const el of root.querySelectorAll("video, audio")) {
+        if (inShadow) watchDirectly(el);
         found.push(el);
       }
-    }
+      for (const host of root.querySelectorAll("*")) {
+        if (host.shadowRoot) scan(host.shadowRoot, true);
+      }
+    };
+    scan(document, false);
     return found;
+  }
+
+  /** Beim Einschalten und regelmäßig: laufende Medien finden und starten. */
+  function startPlaying() {
+    for (const el of [...findAllMedia(), ...known]) {
+      noteMedia(el);
+      if (!el.paused && !controllers.get(el)?.active) startFor(el);
+    }
   }
 
   // ---------- Zustand, Wartung ----------
@@ -525,6 +603,8 @@
   function maintenance() {
     flushSaved();
     prune();
+    maintenanceRuns++;
+    if (state.enabled && maintenanceRuns % SHADOW_SCAN_EVERY === 0) startPlaying();
   }
 
   function applyState(next) {
@@ -533,13 +613,7 @@
     state = { enabled: !!next.enabled, values: SS.clampValues(next.values), rev: next.rev };
 
     if (state.enabled && !wasEnabled) {
-      if (!maintenanceTimer) maintenanceTimer = setInterval(maintenance, MAINTENANCE_MS);
-      for (const el of [...findAllMedia(), ...known]) {
-        noteMedia(el);
-        if (el.paused) continue;
-        const ctrl = getController(el);
-        if (ctrl) ctrl.start();
-      }
+      startPlaying();
     } else if (!state.enabled && wasEnabled) {
       for (const ctrl of controllers.values()) ctrl.stop();
       flushSaved();
@@ -556,7 +630,8 @@
     let silentInputCount = 0;
     for (const el of known) {
       const ctrl = controllers.get(el);
-      if (unsupported.has(el) || ctrl?.tainted || (!graphs.has(el) && isUnsupported(el))) unsupportedCount++;
+      // Mit Kette heißt fremde Quelle: Ton stumm. Ohne Kette: wird nicht angehängt.
+      if (isUnsupported(el)) unsupportedCount++;
       if (ctrl?.connected && ctrl.zeroMs >= SILENT_INPUT_MS) silentInputCount++;
       const s = ctrl?.lastSample;
       if (!s) continue;
@@ -572,6 +647,7 @@
       levelDb: best ? best.levelDb : null,
       thresholdDb: best ? best.thresholdDb : null,
       phase: best ? best.phase : null,
+      silentInput: best ? best.silentInput : false,
     };
   }
 
