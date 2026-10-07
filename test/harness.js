@@ -219,7 +219,10 @@
     media.pause();
   }
 
-  // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell
+  // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
+  // Prüft das Verhalten von außen. Doppelt abgesichert: refresh() startet keinen Übergang,
+  // und onRms setzt ein stummes Element beim nächsten Messwert ohnehin zurück – fällt eine
+  // der beiden Prüfungen weg, bleibt das Ergebnis gleich und dieser Test grün.
   async function muteinsilence(errors) {
     await media.play();
     if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) errors.push("Stille nicht beschleunigt");

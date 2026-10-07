@@ -69,7 +69,7 @@ Alle Browser-Tests laufen lautlos. Der E2E-Test installiert die echte Extension 
 
 - **Medien von fremden Domains ohne CORS** werden nicht angehängt, weil Firefox ihren Ton sonst stummschalten würde. Das Popup zeigt dann „Medium nicht unterstützt (fremde Quelle)“. YouTube und die meisten Streaming-Seiten nutzen `blob:`-Quellen und funktionieren.
 - Wechselt ein bereits angehängtes Element später auf eine fremde Quelle ohne CORS, oder leitet die eigene Domain auf ein fremdes CDN weiter, bleibt es stumm, bis die Seite neu geladen wird. Die Verbindung zur Audio-Kette lässt sich nicht lösen. Das Popup meldet dann „Medium nicht unterstützt“ bzw. nach 5 s „Kein Signal“.
-- Medien in Shadow-DOMs und per `new Audio()` werden erkannt, wenn die Seite `play()` aufruft. Medien in offenen Shadow-DOMs findet zusätzlich eine Suche beim Einschalten und danach regelmäßig (mindestens alle 5 s, auf sehr großen Seiten seltener). Nicht erkannt werden Elemente in geschlossenen Shadow-DOMs, die ohne `play()`-Aufruf starten (`autoplay`-Attribut, eingebaute Bedienelemente).
+- Medien in Shadow-DOMs und per `new Audio()` werden erkannt, wenn die Seite `play()` aufruft. Medien in offenen Shadow-DOMs findet zusätzlich eine Suche beim Einschalten und danach regelmäßig (frühestens alle 5 s, auf sehr großen Seiten seltener). Nicht erkannt werden Elemente in geschlossenen Shadow-DOMs, die ohne `play()`-Aufruf starten (`autoplay`-Attribut, eingebaute Bedienelemente).
 - Klänge unter 5 s (Effekte, Klick-Sounds) werden absichtlich nicht angehängt.
 - Stumme Medien (`muted`, Lautstärke 0, ohne Tonspur) werden nicht beschleunigt – ohne Ton gibt es nichts zu messen.
 - Der Lookahead verschiebt den Ton um 60 ms gegenüber dem Bild. Das liegt unter der Wahrnehmungsgrenze von etwa 125 ms.

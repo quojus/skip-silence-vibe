@@ -139,6 +139,24 @@ check(optionTexts.includes("Standard ★"), "Standard ist wieder Standard-Modus"
 await page.waitForTimeout(300);
 check((await page.textContent("#meterStatus")) === "Ton", "Pegelanzeige zeigt Ton");
 
+const statusFor = async (override) => {
+  await page.evaluate((o) => (globalThis.__levelOverride = o), override);
+  await page.waitForTimeout(250);
+  return page.textContent("#meterStatus");
+};
+check((await statusFor({ phase: "silence" })) === "Stille", "Pegelanzeige zeigt Stille");
+check(
+  (await statusFor({ foreign: true, levelDb: -100 })) === "Medium nicht unterstützt (fremde Quelle)",
+  "Fremde Quelle wird als nicht unterstützt gemeldet",
+);
+check((await statusFor({ muted: true, levelDb: -100 })) === "Stumm – keine Messung", "Stummes Medium wird als stumm gemeldet");
+check(
+  (await statusFor({ silentInput: true, levelDb: -100 })) === "Kein Signal – Quelle evtl. nicht unterstützt",
+  "Dauerhaft 0 wird als „Kein Signal“ gemeldet",
+);
+check((await statusFor({ playing: false })) === "Pausiert", "Pausiertes Medium wird als pausiert gemeldet");
+await statusFor({});
+
 mkdirSync(new URL("test/output/", root), { recursive: true });
 await page.screenshot({ path: SCREENSHOT, fullPage: true });
 await browser.close();

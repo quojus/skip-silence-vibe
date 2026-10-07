@@ -250,6 +250,8 @@
     refresh() {
       if (!this.connected) return;
       const v = this.values;
+      // measurable(): ein stummes Element nie beschleunigen. onRms setzt es zusätzlich beim
+      // nächsten Messwert zurück – diese Prüfung verhindert, dass überhaupt ein Übergang startet.
       const silent = this.detector.phase === "silence" && this.mediaState === "playing" && this.measurable();
       const phaseRamp = silent ? v.rampIn : v.rampOut;
       const targetRate = silent ? v.silenceSpeed : v.normalSpeed;
@@ -325,6 +327,7 @@
         phase: hearable ? res.phase : "sound",
         playing,
         foreign: this.foreign,
+        muted: !audible(this.el),
         silentInput: this.zeroMs >= SILENT_INPUT_MS,
       };
     }
@@ -673,6 +676,7 @@
       phase: best ? best.phase : null,
       silentInput: best ? best.silentInput : false,
       foreign: best ? best.foreign : false,
+      muted: best ? best.muted : false,
     };
   }
 

@@ -346,6 +346,7 @@
     hyst.style.left = pct(b.thresholdDb + values.hysteresisDb);
     // Nur für das angezeigte Element – ein anderes, normal laufendes Element soll nicht gestört werden
     if (b.foreign) status.textContent = "Medium nicht unterstützt (fremde Quelle)";
+    else if (b.muted && b.playing) status.textContent = "Stumm – keine Messung";
     else if (b.silentInput) status.textContent = "Kein Signal – Quelle evtl. nicht unterstützt";
     else status.textContent = !b.playing ? "Pausiert" : b.phase === "silence" ? "Stille" : "Ton";
     vals.textContent = `${de(b.levelDb, 0)} dB · Schwelle ${de(b.thresholdDb, 0)} dB`;

@@ -21,6 +21,7 @@
   const listeners = [];
   const noopEvent = { addListener() {} };
   globalThis.__sent = [];
+  globalThis.__levelOverride = {}; // Tests setzen hier z. B. { foreign: true }
   globalThis.browser = {
     storage: { local: area(), session: area() },
     runtime: {
@@ -39,7 +40,15 @@
       sendMessage: async (tabId, msg) => {
         globalThis.__sent.push(structuredClone(msg));
         if (msg.type === "getLevel") {
-          return { mediaCount: 1, unsupportedCount: 0, playing: true, levelDb: -28, thresholdDb: -46, phase: "sound" };
+          return {
+            mediaCount: 1,
+            unsupportedCount: 0,
+            playing: true,
+            levelDb: -28,
+            thresholdDb: -46,
+            phase: "sound",
+            ...globalThis.__levelOverride,
+          };
         }
         return undefined;
       },
