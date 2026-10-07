@@ -24,10 +24,11 @@
   globalThis.browser = {
     storage: { local: area(), session: area() },
     runtime: {
+      getURL: (p) => `moz-extension://test/${p}`,
       onMessage: { addListener: (fn) => listeners.push(fn) },
       sendMessage: async (msg) => {
         for (const fn of listeners) {
-          const r = fn(structuredClone(msg), {});
+          const r = fn(structuredClone(msg), { url: "moz-extension://test/popup/popup.html" });
           if (r !== undefined) return structuredClone(await r);
         }
         return undefined;

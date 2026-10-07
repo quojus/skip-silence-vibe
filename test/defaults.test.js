@@ -4,7 +4,14 @@ const SS = require("../lib/defaults.js");
 
 test("leere Eingabe liefert Standardwerte", () => {
   assert.deepEqual(SS.clampValues(undefined), SS.DEFAULT_VALUES);
-  assert.notEqual(SS.clampValues({}), SS.DEFAULT_VALUES);
+  assert.deepEqual(SS.clampValues({}), SS.DEFAULT_VALUES);
+});
+test("Ergebnis ist eine unabhängige Kopie", () => {
+  const v = SS.clampValues({});
+  v.rampIn.bezier[0] = 0.9;
+  v.normalSpeed = 2;
+  assert.equal(SS.DEFAULT_VALUES.rampIn.bezier[0], 0.42);
+  assert.equal(SS.DEFAULT_VALUES.normalSpeed, 1);
 });
 test("Zahlen werden begrenzt", () => {
   const v = SS.clampValues({ normalSpeed: 99, silenceSpeed: 0, thresholdDb: -200 });

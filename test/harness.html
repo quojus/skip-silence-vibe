@@ -10,7 +10,11 @@
   </head>
   <body>
     <p>Lädt das echte <code>content.js</code> mit einem Stub für <code>browser</code>.</p>
-    <audio id="media" src="fixtures/ton_pause.wav" preload="auto" controls></audio>
+    <audio id="media" preload="auto" controls></audio>
+    <script>
+      document.getElementById("media").src =
+        new URLSearchParams(location.search).get("s") === "mute" ? "fixtures/ton_kurzpause.wav" : "fixtures/ton_pause.wav";
+    </script>
     <p><button id="start">Test starten</button></p>
     <div id="result">bereit</div>
     <script src="harness-stub.js"></script>

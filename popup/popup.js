@@ -229,7 +229,11 @@
       canvas.setAttribute("aria-label", `Kurve ${r.key}`);
       box.append(durWrap, presetRow, canvas);
 
-      const editor = new CurveEditor(canvas, (b) => setValue([r.key, "bezier"], b));
+      const editor = new CurveEditor(canvas, (b) => {
+        // Bei „sofort“ hätte die Kurve keine Wirkung – Ziehen aktiviert wieder eine Dauer
+        if (values[r.key].durationMs === 0) values[r.key].durationMs = SS.DEFAULT_VALUES[r.key].durationMs;
+        setValue([r.key, "bezier"], b);
+      });
       ramps[r.key] = { duration, durationValue, preset, editor };
     }
   }
@@ -267,7 +271,10 @@
       const ramp = values[r.key];
       if (document.activeElement !== ui.duration) ui.duration.value = ramp.durationMs;
       ui.durationValue.textContent = `${de(ramp.durationMs, 0)} ms`;
-      ui.preset.value = presetOf(ramp);
+      const preset = presetOf(ramp);
+      // „benutzerdefiniert“ ist nur eine Anzeige für gezogene Kurven, keine Auswahl
+      ui.preset.querySelector('option[value="custom"]').disabled = preset !== "custom";
+      ui.preset.value = preset;
       if (!ui.editor.dragging && !SS.valuesEqual(ui.editor.getBezier(), ramp.bezier)) {
         ui.editor.setBezier(ramp.bezier);
       }
@@ -337,7 +344,8 @@
     thr.style.display = hyst.style.display = "block";
     thr.style.left = pct(b.thresholdDb);
     hyst.style.left = pct(b.thresholdDb + values.hysteresisDb);
-    status.textContent = !b.playing ? "Pausiert" : b.phase === "silence" ? "Stille" : "Ton";
+    if (info.silentInput > 0) status.textContent = "Kein Signal – Quelle evtl. nicht unterstützt";
+    else status.textContent = !b.playing ? "Pausiert" : b.phase === "silence" ? "Stille" : "Ton";
     vals.textContent = `${de(b.levelDb, 0)} dB · Schwelle ${de(b.thresholdDb, 0)} dB`;
   }
 
@@ -352,13 +360,16 @@
       const results = await Promise.allSettled(
         frames.map((frameId) => browser.tabs.sendMessage(tabId, { type: "getLevel" }, { frameId })),
       );
-      const info = { reachable: false, mediaCount: 0, unsupported: 0, best: null };
+      const info = { reachable: false, mediaCount: 0, unsupported: 0, silentInput: 0, best: null };
+      const dead = frames.filter((f, i) => f !== 0 && results[i].status === "rejected");
+      if (dead.length) call({ type: "dropFrames", frameIds: dead }).catch(() => {});
       for (const r of results) {
         if (r.status !== "fulfilled" || !r.value) continue;
         const v = r.value;
         info.reachable = true;
         info.mediaCount += v.mediaCount;
         info.unsupported += v.unsupportedCount;
+        info.silentInput += v.silentInputCount || 0;
         if (v.levelDb === null) continue;
         const b = info.best;
         if (!b || (v.playing && !b.playing) || (v.playing === b.playing && v.levelDb > b.levelDb)) {

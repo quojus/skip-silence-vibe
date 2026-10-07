@@ -123,6 +123,18 @@
     async getPopupState(msg) {
       return popupState(requireTabId(msg));
     },
+    async dropFrames(msg) {
+      const tabId = requireTabId(msg);
+      const drop = new Set(Array.isArray(msg.frameIds) ? msg.frameIds : []);
+      drop.delete(0);
+      const tab = await getTab(tabId);
+      const frames = tab.frames.filter((f) => !drop.has(f));
+      if (frames.length !== tab.frames.length) {
+        tab.frames = frames;
+        await putTab(tabId, tab, false);
+      }
+      return { ok: true };
+    },
     async setEnabled(msg) {
       const tabId = requireTabId(msg);
       const tab = await getTab(tabId);
@@ -192,6 +204,10 @@
     },
   };
 
+  function isExtensionPage(sender) {
+    return typeof sender.url === "string" && sender.url.startsWith(browser.runtime.getURL(""));
+  }
+
   browser.runtime.onMessage.addListener((msg, sender) => {
     if (!msg || typeof msg.type !== "string") return undefined;
 
@@ -202,8 +218,8 @@
     }
 
     if (Object.hasOwn(popupHandlers, msg.type)) {
-      // Nur aus Extension-Seiten (Popup), nicht aus Webseiten-Frames
-      if (sender.tab) return undefined;
+      // Nur aus Extension-Seiten (Popup), nie aus Content-Scripts in Webseiten
+      if (!isExtensionPage(sender)) return undefined;
       return run(() => popupHandlers[msg.type](msg)).catch((err) => ({
         ok: false,
         error: err.code || String(err.message || err),
@@ -218,7 +234,9 @@
     run(() => browser.storage.session.remove(keyOf(tabId)));
   });
 
-  // Firefox setzt tab-spezifische Badges bei Navigation zurück
+  // Firefox setzt tab-spezifische Badges bei Navigation zurück.
+  // Veraltete Frame-IDs entfernt das Popup per dropFrames (ein Zurücksetzen hier
+  // könnte die Anmeldung der neuen Seite überholen).
   browser.tabs.onUpdated.addListener((tabId, info) => {
     if (info.status !== "loading") return;
     run(async () => {

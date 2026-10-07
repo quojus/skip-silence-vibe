@@ -10,7 +10,7 @@ export default [
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",
-      globals: { ...globals.browser, ...globals.webextensions, SS: "readonly", CurveEditor: "readonly", module: "readonly" },
+      globals: { ...globals.browser, ...globals.webextensions, SS: "readonly", CurveEditor: "readonly", module: "readonly", exportFunction: "readonly" },
     },
   },
   {
