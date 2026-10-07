@@ -30,7 +30,11 @@ const port = await freePort();
 const { origin, server } = await serve();
 const context = await withExtension(firefox, root).launchPersistentContext(profile, {
   args: ["--start-debugger-server", String(port)],
-  firefoxUserPrefs: { "media.autoplay.default": 0, "media.autoplay.blocking_policy": 0 },
+  firefoxUserPrefs: {
+    "media.autoplay.default": 0,
+    "media.autoplay.blocking_policy": 0,
+    "media.volume_scale": "0.0", // lautlos: nichts über die Lautsprecher ausgeben
+  },
 });
 
 const errors = [];

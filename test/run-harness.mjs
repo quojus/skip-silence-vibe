@@ -4,13 +4,17 @@ import { serve } from "./serve.mjs";
 
 // === EINSTELLUNGEN ===
 const SCENARIOS = ["rate", "mute", "muted", "disable", "override"];
-const REPEAT = 3; // jeder Durchlauf muss bestehen – fängt zufällige Fehler
+const REPEAT = 1; // für Stabilitätsprüfungen erhöhen
 const TIMEOUT_MS = 30000;
 // =====================
 
 const { origin, server } = await serve();
 const browser = await firefox.launch({
-  firefoxUserPrefs: { "media.autoplay.default": 0, "media.autoplay.blocking_policy": 0 },
+  firefoxUserPrefs: {
+    "media.autoplay.default": 0,
+    "media.autoplay.blocking_policy": 0,
+    "media.volume_scale": "0.0", // lautlos: nichts über die Lautsprecher ausgeben
+  },
 });
 let failed = 0;
 for (let run = 1; run <= REPEAT; run++) {

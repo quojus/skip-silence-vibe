@@ -32,17 +32,17 @@
   };
   globalThis.__harnessSend = (msg) => listeners.map((fn) => fn(msg, {}));
 
-  // Ausgang der Extension mitschneiden: GainNode → destination bekommt zusätzlich einen Analyser
+  // Ausgang der Extension mitschneiden: GainNode → destination wird auf einen Analyser
+  // umgeleitet. Der Analyser misst den Pegel, die Lautsprecher bleiben still.
   const connect = AudioNode.prototype.connect;
   AudioNode.prototype.connect = function (dest, ...rest) {
-    const r = connect.call(this, dest, ...rest);
     if (dest instanceof AudioDestinationNode && this instanceof GainNode) {
       const analyser = this.context.createAnalyser();
       analyser.fftSize = 2048;
-      connect.call(this, analyser);
       globalThis.__outAnalyser = analyser;
+      return connect.call(this, analyser);
     }
-    return r;
+    return connect.call(this, dest, ...rest);
   };
   globalThis.__outDb = () => {
     const a = globalThis.__outAnalyser;

@@ -17,7 +17,7 @@ const check = (cond, text) => {
   console.log(`${cond ? "✔" : "✖"} ${text}`);
 };
 
-const browser = await firefox.launch();
+const browser = await firefox.launch({ firefoxUserPrefs: { "media.volume_scale": "0.0" } });
 const page = await browser.newPage({ viewport: { width: 384, height: 1100 } });
 page.on("console", (m) => m.type() === "error" && errors.push(`Konsole: ${m.text()}`));
 page.on("pageerror", (e) => errors.push(`Seitenfehler: ${e.message}`));
