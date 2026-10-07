@@ -1,0 +1,17 @@
+{
+  "name": "skip-silence-eigen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Firefox-Extension: Stille überspringen, Einstellungen pro Tab",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "eslint . && web-ext lint --self-hosted --ignore-files 'test/**' 'docs/**' 'reviews/**' 'node_modules/**' 'package*.json' 'eslint.config.mjs' 'README.md'",
+    "start": "web-ext run --ignore-files 'test/**' 'docs/**' 'reviews/**'"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "web-ext": "^10.7.0"
+  }
+}
