@@ -56,16 +56,18 @@ Nach Änderungen das Add-on unter `about:debugging` mit *Neu laden* aktualisiere
 
 ```bash
 npm install
-npm test               # Unit-Tests der Logik (Node)
-npm run test:browser   # Content-Script und Popup in Firefox (Playwright)
+npm test               # Unit-Tests: Logik und background.js (Node)
+npm run test:browser   # Firefox: Content-Script-Szenarien, Popup, echte Extension (E2E)
 npm run lint           # ESLint + web-ext lint
 ```
 
-`npm run test:browser` braucht einmalig `npx playwright install firefox`. Die Test-WAV wird mit `npm run fixture` neu erzeugt.
+`npm run test:browser` braucht einmalig `npx playwright install firefox`. Die Test-WAVs werden mit `npm run fixture` neu erzeugt.
+
+Der E2E-Test installiert die echte Extension temporär und schaltet sie über das Firefox-Remote-Debugging-Protokoll ein (`test/rdp.mjs`). Die Testseite hat eine strenge Content-Security-Policy und enthält `<audio>` im DOM, im geschlossenen Shadow DOM und per `new Audio()`.
 
 ## Bekannte Grenzen
 
 - **Medien von fremden Domains ohne CORS** werden nicht angehängt, weil Firefox ihren Ton sonst stummschalten würde. Das Popup zeigt dann „Medium nicht unterstützt (fremde Quelle)“. YouTube und die meisten Streaming-Seiten nutzen `blob:`-Quellen und funktionieren.
-- Wechselt ein bereits angehängtes Element später auf eine fremde Quelle ohne CORS, bleibt es stumm, bis die Seite neu geladen wird.
-- Medien in geschlossenen Shadow-DOMs und Medien, die gar nicht im DOM hängen (`new Audio()`), werden nicht erkannt.
+- Wechselt ein bereits angehängtes Element später auf eine fremde Quelle ohne CORS, oder leitet die eigene Domain auf ein fremdes CDN weiter, bleibt es stumm, bis die Seite neu geladen wird. Die Verbindung zur Audio-Kette lässt sich nicht lösen. Das Popup meldet dann „Medium nicht unterstützt“ bzw. nach 5 s „Kein Signal“.
+- Medien in Shadow-DOMs und per `new Audio()` werden erkannt, sobald die Seite `play()` aufruft. Ein Element in einem geschlossenen Shadow-DOM, das nur über das `autoplay`-Attribut startet, wird nicht erkannt.
 - Der Lookahead verschiebt den Ton um 60 ms gegenüber dem Bild. Das liegt unter der Wahrnehmungsgrenze von etwa 125 ms.

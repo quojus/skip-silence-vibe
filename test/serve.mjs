@@ -13,13 +13,18 @@ const TYPES = {
   ".wav": "audio/wav",
 };
 
+const STRICT_CSP = "default-src 'none'; script-src 'self'; media-src 'self'; style-src 'self'";
+
 export function serve() {
   const server = createServer(async (req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname));
     if (path.includes("..")) return res.writeHead(403).end();
     try {
       const body = await readFile(join(ROOT, path));
-      res.writeHead(200, { "content-type": TYPES[extname(path)] || "application/octet-stream" }).end(body);
+      const headers = { "content-type": TYPES[extname(path)] || "application/octet-stream" };
+      // Testseite mit strenger CSP wie bei großen Videoplattformen
+      if (path.endsWith("e2e.html")) headers["content-security-policy"] = STRICT_CSP;
+      res.writeHead(200, headers).end(body);
     } catch {
       res.writeHead(404).end();
     }

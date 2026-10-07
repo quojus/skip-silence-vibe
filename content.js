@@ -477,8 +477,10 @@
     try {
       const proto = win.HTMLMediaElement.prototype;
       const original = proto.play;
+      // play() hat keine Parameter. Ein Argument-Array des Content-Scripts dürfte die Seite
+      // nicht lesen ("Permission denied") – deshalb das Original ohne Argumente aufrufen.
       exportFunction(
-        function play(...args) {
+        function play() {
           try {
             if (this instanceof HTMLMediaElement && this.getRootNode() !== document) {
               watchDirectly(this);
@@ -487,7 +489,7 @@
           } catch {
             // Beobachtung darf die Wiedergabe nie verhindern
           }
-          return original.apply(this, args);
+          return original.call(this);
         },
         proto,
         { defineAs: "play" },

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Skip Silence – E2E</title>
+  </head>
+  <body>
+    <p>Testseite mit strenger CSP: normales &lt;audio&gt;, Shadow DOM und new Audio().</p>
+    <audio id="dom" src="fixtures/ton_pause.wav" preload="auto"></audio>
+    <shadow-player id="shadow"></shadow-player>
+    <script src="e2e-page.js"></script>
+  </body>
+</html>
