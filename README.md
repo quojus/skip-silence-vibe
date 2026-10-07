@@ -72,4 +72,5 @@ Alle Browser-Tests laufen lautlos. Der E2E-Test installiert die echte Extension 
 - Medien in Shadow-DOMs und per `new Audio()` werden erkannt, wenn die Seite `play()` aufruft. Medien in offenen Shadow-DOMs findet zusätzlich eine Suche beim Einschalten und danach regelmäßig (frühestens alle 5 s, auf sehr großen Seiten seltener). Nicht erkannt werden Elemente in geschlossenen Shadow-DOMs, die ohne `play()`-Aufruf starten (`autoplay`-Attribut, eingebaute Bedienelemente).
 - Klänge unter 5 s (Effekte, Klick-Sounds) werden absichtlich nicht angehängt.
 - Stumme Medien (`muted`, Lautstärke 0, ohne Tonspur) werden nicht beschleunigt – ohne Ton gibt es nichts zu messen.
+- Normalgeschwindigkeit 1,0 läuft intern mit 1,0001, also 0,01 % schneller (eine Sekunde auf knapp drei Stunden). Bei exakt 1,0 würde Firefox beim nächsten Beschleunigen kurz alten Ton wiederholen.
 - Der Lookahead verschiebt den Ton um 60 ms gegenüber dem Bild. Das liegt unter der Wahrnehmungsgrenze von etwa 125 ms.

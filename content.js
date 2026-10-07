@@ -19,6 +19,10 @@
   ];
   const RATE_MIN = 0.25;
   const RATE_MAX = 16;
+  // Bei exakt 1,0 umgeht Firefox seine Zeitstreckung, deren Puffer dabei gefüllt bleibt.
+  // Die nächste Beschleunigung spielt dann erst 20–45 ms alten, schon gehörten Ton ab.
+  // 1,0001 hält die Zeitstreckung aktiv (0,01 % schneller, nicht hörbar).
+  const RATE_ONE = 1.0001;
   const MIN_FADE_S = 0.005;
   const FADE_SEGMENTS = 16; // Kurve als Folge linearer Rampen – lässt sich jederzeit abbrechen
   const DELAY_SWITCH_S = 0.01; // Ausblenden um einen Wechsel der Verzögerung
@@ -373,15 +377,17 @@
       if (p >= 1) this.ramp = null;
     }
 
+    /** force: exakt diesen Wert setzen (nur beim Ausschalten, um die Ausgangsrate herzustellen). */
     setRate(rate, force = false) {
-      const r = clamp(rate, RATE_MIN, RATE_MAX);
+      let r = clamp(rate, RATE_MIN, RATE_MAX);
+      if (!force && r === 1) r = RATE_ONE;
       this.ownRate = r;
-      if (force || Math.abs(this.el.playbackRate - r) > 1e-4) this.el.playbackRate = r;
+      if (force || Math.abs(this.el.playbackRate - r) > 1e-6) this.el.playbackRate = r;
     }
 
     onRateChange() {
       // Fremde Änderungen (z. B. Geschwindigkeitsmenü der Seite) überschreiben
-      if (this.connected && Math.abs(this.el.playbackRate - this.ownRate) > 1e-3) {
+      if (this.connected && Math.abs(this.el.playbackRate - this.ownRate) > 1e-6) {
         this.el.playbackRate = this.ownRate;
       }
     }

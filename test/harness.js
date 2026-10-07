@@ -26,6 +26,8 @@
   }
 
   const between = (samples, a, b) => samples.filter((s) => s.t >= a && s.t < b);
+  // Normalgeschwindigkeit 1 setzt die Extension intern als 1,0001 (siehe RATE_ONE in content.js)
+  const isNormal = (rate) => Math.abs(rate - 1) < 0.001;
 
   // 1 s Ton / 1 s Stille: Beschleunigung, Rückkehr, Pause/Play, Schonzeit
   async function rate(errors) {
@@ -42,14 +44,14 @@
     media.pause();
     await paused;
     await sleep(0);
-    if (media.playbackRate !== 1) errors.push(`Nach Pause Rate ${media.playbackRate} statt 1`);
+    if (!isNormal(media.playbackRate)) errors.push(`Nach Pause Rate ${media.playbackRate} statt 1`);
 
     await sleep(500);
     const played = once("play");
     await media.play();
     await played;
     await sleep(0);
-    if (media.playbackRate !== 1) errors.push(`Direkt nach Play Rate ${media.playbackRate} statt 1`);
+    if (!isNormal(media.playbackRate)) errors.push(`Direkt nach Play Rate ${media.playbackRate} statt 1`);
     const t0 = performance.now();
     const grace = [];
     while (performance.now() - t0 < 250) {
@@ -111,7 +113,7 @@
     await waitUntil(() => media.currentTime >= 0.3, 2000);
     media.playbackRate = 2;
     await sleep(50);
-    if (media.playbackRate !== 1) errors.push(`Fremde Rate nicht überschrieben (${media.playbackRate})`);
+    if (!isNormal(media.playbackRate)) errors.push(`Fremde Rate nicht überschrieben (${media.playbackRate})`);
     if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) errors.push("Stille nicht beschleunigt");
     const seeked = once("seeked");
     media.currentTime = 4.2;
@@ -245,6 +247,22 @@
     silent.pause();
   }
 
+  // Digitale Stille (exakt 0) muss beim Beschleunigen still bleiben: kein alter Ton aus dem
+  // Puffer der Zeitstreckung (tritt in Firefox auf, wenn die Rate zwischendurch exakt 1,0 war)
+  async function stale(errors) {
+    media.src = "fixtures/ton_nullstille.wav";
+    const rec = recorder();
+    await media.play();
+    await waitUntil(() => media.ended || media.currentTime >= 7.9, 15000);
+    rec.stop();
+    for (const k of [1, 3, 5, 7]) {
+      const loud = between(rec.samples, k + 0.15, k + 0.95).filter((s) => s.db > -60);
+      if (loud.length) errors.push(`Alter Ton in der Stille ${k}–${k + 1} s: ${loud.map((s) => `${s.t.toFixed(2)} s ${s.db.toFixed(1)} dB`).join(", ")}`);
+    }
+    const fast = between(rec.samples, 1.3, 1.95).some((s) => s.rate > 2);
+    if (!fast) errors.push("Stille nicht beschleunigt (Test ohne Aussage)");
+  }
+
   // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
   // Prüft das Verhalten von außen. Doppelt abgesichert: refresh() startet keinen Übergang,
   // und onRms setzt ein stummes Element beim nächsten Messwert ohnehin zurück – fällt eine
@@ -301,6 +319,7 @@
     silentloss,
     lateshadow,
     mixed,
+    stale,
   };
 
   document.getElementById("start").addEventListener("click", async () => {

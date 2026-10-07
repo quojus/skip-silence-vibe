@@ -15,6 +15,7 @@
     silentloss: { muteSilence: false },
     lateshadow: { muteSilence: false },
     mixed: { muteSilence: false },
+    stale: { muteSilence: false },
   };
   const scenario = new URLSearchParams(location.search).get("s") || "rate";
   const listeners = [];

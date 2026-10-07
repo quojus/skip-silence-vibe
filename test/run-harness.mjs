@@ -18,6 +18,7 @@ const SCENARIOS = [
   "silentloss",
   "lateshadow",
   "mixed",
+  "stale",
 ];
 const REPEAT = 1; // für Stabilitätsprüfungen erhöhen
 const TIMEOUT_MS = 30000;
