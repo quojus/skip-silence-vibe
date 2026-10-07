@@ -184,6 +184,11 @@ input[type="text"] {
 
 button {
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.buttons button {
+  padding: 4px 7px;
 }
 
 button:hover:not(:disabled) {

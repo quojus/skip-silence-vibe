@@ -6,12 +6,15 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "lint": "eslint . && web-ext lint --self-hosted --ignore-files 'test/**' 'docs/**' 'reviews/**' 'node_modules/**' 'package*.json' 'eslint.config.mjs' 'README.md'",
-    "start": "web-ext run --ignore-files 'test/**' 'docs/**' 'reviews/**'"
+    "start": "web-ext run --ignore-files 'test/**' 'docs/**' 'reviews/**'",
+    "test:browser": "node test/run-harness.mjs && node test/run-popup.mjs",
+    "fixture": "python3 test/make_fixture.py"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.12.0",
     "globals": "^17.13.0",
+    "playwright": "^1.63.0",
     "web-ext": "^10.7.0"
   }
 }

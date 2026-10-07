@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Skip Silence – Integrationstest</title>
+    <style>
+      body { background: #1e1f24; color: #e6e6e6; font: 14px system-ui, sans-serif; padding: 16px; }
+      #result { font-weight: bold; margin-top: 12px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <p>Lädt das echte <code>content.js</code> mit einem Stub für <code>browser</code>.</p>
+    <audio id="media" src="fixtures/ton_pause.wav" preload="auto" controls></audio>
+    <p><button id="start">Test starten</button></p>
+    <div id="result">bereit</div>
+    <script src="harness-stub.js"></script>
+    <script src="../lib/defaults.js"></script>
+    <script src="../lib/bezier.js"></script>
+    <script src="../lib/detector.js"></script>
+    <script src="../content.js"></script>
+    <script src="harness.js"></script>
+  </body>
+</html>
