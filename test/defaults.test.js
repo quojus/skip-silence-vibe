@@ -6,6 +6,17 @@ test("leere Eingabe liefert Standardwerte", () => {
   assert.deepEqual(SS.clampValues(undefined), SS.DEFAULT_VALUES);
   assert.deepEqual(SS.clampValues({}), SS.DEFAULT_VALUES);
 });
+test("betterSample: spielend, dann messbar, dann lauter", () => {
+  const base = { playing: true, muted: false, foreign: false, levelDb: -100 };
+  assert.equal(SS.betterSample(base, null), true);
+  assert.equal(SS.betterSample({ ...base, playing: false, levelDb: 0 }, base), false);
+  assert.equal(SS.betterSample(base, { ...base, muted: true }), true);
+  assert.equal(SS.betterSample({ ...base, muted: true }, base), false);
+  assert.equal(SS.betterSample(base, { ...base, foreign: true, levelDb: -10 }), true);
+  assert.equal(SS.betterSample({ ...base, levelDb: -20 }, { ...base, levelDb: -30 }), true);
+  assert.equal(SS.betterSample({ ...base, levelDb: -30 }, { ...base, levelDb: -20 }), false);
+});
+
 test("Ergebnis ist eine unabhängige Kopie", () => {
   const v = SS.clampValues({});
   v.rampIn.bezier[0] = 0.9;

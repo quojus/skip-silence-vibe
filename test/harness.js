@@ -167,6 +167,9 @@
     await media.play();
     await waitUntil(() => media.currentTime >= 2.5, 5000);
     rec.stop();
+    const l = await level();
+    if (!l.muted) errors.push("Pegelabfrage meldet das stumme Element nicht als stumm");
+    if (l.phase !== "sound") errors.push(`Stummes Element mit Phase ${l.phase}`);
     media.pause();
     const r = max(rec.samples.map((s) => s.rate));
     if (r > 1.05) errors.push(`Stummes Element beschleunigt (${r.toFixed(2)}x)`);
@@ -217,6 +220,29 @@
     })();
     if (!warned) errors.push("Keine Warnung „Kein Signal“ nach 9 s");
     media.pause();
+  }
+
+  // Stummes Element und hörbares Element in digitaler Stille melden beide −100 dB:
+  // die Anzeige muss das hörbare (messbare) Element wählen
+  async function mixed(errors) {
+    const silent = document.createElement("audio");
+    silent.src = "fixtures/ton_pause.wav";
+    silent.muted = true;
+    silent.loop = true;
+    document.body.append(silent);
+    await silent.play();
+    await sleep(300);
+    // Hörbares Element erst nach dem stummen anlegen: bei Gleichstand gewinnt sonst das zuerst bekannte
+    const audible = document.createElement("audio");
+    audible.src = "fixtures/ton_nullstille.wav";
+    document.body.append(audible);
+    await audible.play();
+    if (!(await waitUntil(() => audible.currentTime > 1.3 && audible.currentTime < 1.9, 4000))) errors.push("Stille nicht erreicht");
+    const l = await level();
+    if (l.muted) errors.push("Anzeige wählt das stumme statt des hörbaren Elements");
+    if (l.levelDb > -99) errors.push(`Erwartet digitale Stille, gemessen ${l.levelDb} dB`);
+    audible.pause();
+    silent.pause();
   }
 
   // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
@@ -274,6 +300,7 @@
     muteinsilence,
     silentloss,
     lateshadow,
+    mixed,
   };
 
   document.getElementById("start").addEventListener("click", async () => {

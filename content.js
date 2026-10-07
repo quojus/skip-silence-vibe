@@ -321,7 +321,9 @@
           pendingSavedMs += windowMs * Math.max(0, this.ownRate / v.normalSpeed - 1);
         }
       }
-      if (playing && hearable) this.zeroMs = rms === 0 ? this.zeroMs + windowMs : 0;
+      // Nur bei messbarem Ton zählen; stumm oder fremd heißt: neu anfangen
+      if (!hearable) this.zeroMs = 0;
+      else if (playing) this.zeroMs = rms === 0 ? this.zeroMs + windowMs : 0;
       this.lastSample = {
         ...res,
         phase: hearable ? res.phase : "sound",
@@ -663,7 +665,7 @@
       if (isUnsupported(el)) unsupportedCount++;
       const s = ctrl?.lastSample;
       if (!s) continue;
-      if (!best || (s.playing && !best.playing) || (s.playing === best.playing && s.levelDb > best.levelDb)) {
+      if (SS.betterSample(s, best)) {
         best = s;
       }
     }

@@ -374,7 +374,7 @@
         info.unsupported += v.unsupportedCount;
         if (v.levelDb === null) continue;
         const b = info.best;
-        if (!b || (v.playing && !b.playing) || (v.playing === b.playing && v.levelDb > b.levelDb)) {
+        if (SS.betterSample(v, b)) {
           info.best = v;
         }
       }
