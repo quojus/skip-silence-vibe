@@ -263,6 +263,24 @@
     if (!fast) errors.push("Stille nicht beschleunigt (Test ohne Aussage)");
   }
 
+  // Im Ton aus, in der Stille wieder ein: Beim Wechsel von exakt 1,0 auf 1,0001 darf kein
+  // alter Ton aus dem Puffer der Zeitstreckung hörbar werden
+  async function toggle(errors) {
+    media.src = "fixtures/ton_nullstille.wav";
+    const rec = recorder();
+    await media.play();
+    await waitUntil(() => media.currentTime >= 0.6, 3000);
+    globalThis.__harnessSend({ type: "applyState", state: { enabled: false, rev: 1, values: globalThis.__values() } });
+    await waitUntil(() => media.currentTime >= 1.35, 3000);
+    const t0 = media.currentTime;
+    send(2, {});
+    await sleep(450);
+    rec.stop();
+    media.pause();
+    const loud = between(rec.samples, t0 + 0.02, Math.min(t0 + 0.45, 1.98)).filter((s) => s.db > -60);
+    if (loud.length) errors.push(`Alter Ton nach Einschalten: ${loud.map((s) => `${s.t.toFixed(2)} s ${s.db.toFixed(1)} dB`).join(", ")}`);
+  }
+
   // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
   // Prüft das Verhalten von außen. Doppelt abgesichert: refresh() startet keinen Übergang,
   // und onRms setzt ein stummes Element beim nächsten Messwert ohnehin zurück – fällt eine
@@ -320,6 +338,7 @@
     lateshadow,
     mixed,
     stale,
+    toggle,
   };
 
   document.getElementById("start").addEventListener("click", async () => {

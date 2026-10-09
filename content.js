@@ -23,6 +23,9 @@
   // Die nächste Beschleunigung spielt dann erst 20–45 ms alten, schon gehörten Ton ab.
   // 1,0001 hält die Zeitstreckung aktiv (0,01 % schneller, nicht hörbar).
   const RATE_ONE = 1.0001;
+  // Wechselt die Rate doch einmal von exakt 1,0 weg (Einschalten), wird der alte Puffer
+  // so lange stummgeschaltet (gemessen 20–50 ms, mit Reserve).
+  const STALE_MASK_S = 0.07;
   const MIN_FADE_S = 0.005;
   const FADE_SEGMENTS = 16; // Kurve als Folge linearer Rampen – lässt sich jederzeit abbrechen
   const DELAY_SWITCH_S = 0.01; // Ausblenden um einen Wechsel der Verzögerung
@@ -227,7 +230,11 @@
       this.foreign = isUnsupported(this.el);
       this.graph.worklet.port.onmessage = (e) => this.onRms(e.data);
       if (!this.setDelay(this.lookaheadOn(), 1) && this.gainTarget !== 1) this.setGain(1, DELAY_SWITCH_S);
+      const fromExactOne = this.el.playbackRate === 1;
       this.setRate(this.values.normalSpeed);
+      // Von exakt 1,0 auf 1,0001 (oder schneller): Firefox gibt zuerst alten Ton aus dem
+      // Puffer der Zeitstreckung aus – kurz ausblenden
+      if (fromExactOne && this.ownRate !== 1) this.maskStale();
       this.graph.worklet.port.postMessage(true);
     }
 
@@ -322,7 +329,8 @@
         if (res.changed) this.onPhase(res);
         this.advanceRamp(windowMs);
         if (playing && res.phase === "silence") {
-          pendingSavedMs += windowMs * Math.max(0, this.ownRate / v.normalSpeed - 1);
+          const rate = this.ownRate === RATE_ONE ? 1 : this.ownRate;
+          pendingSavedMs += windowMs * Math.max(0, rate / v.normalSpeed - 1);
         }
       }
       // Nur bei messbarem Ton zählen; stumm oder fremd heißt: neu anfangen
@@ -446,6 +454,36 @@
       } catch (err) {
         console.warn("[Skip Silence] Lautstärke-Automation fehlgeschlagen", err);
         this.forceGain(target);
+      }
+    }
+
+    /** Lautstärke für STALE_MASK_S auf 0 legen, ohne den übrigen geplanten Verlauf zu verlieren. */
+    maskStale() {
+      if (!this.graph || !ctx) return;
+      const E = MIN_FADE_S;
+      const now = ctx.currentTime;
+      // Der alte Ton läuft durch die Verzögerung – die Maske liegt entsprechend später
+      const start = now + (this.graph.delayOn ? C.LOOKAHEAD_S : 0);
+      const end = start + STALE_MASK_S;
+      const downFrom = Math.max(now, start - E);
+      const dip = (t) => {
+        if (t <= downFrom) return 1;
+        if (t < start) return (start - t) / (start - downFrom);
+        if (t <= end) return 0;
+        if (t < end + E) return (t - end) / E;
+        return 1;
+      };
+      const last = Math.max(this.graph.gainPts.at(-1).t, end + E);
+      const times = new Set([now, downFrom, start, end, end + E]);
+      for (let t = now; t < last; t += E) times.add(t);
+      for (const p of this.graph.gainPts) if (p.t > now) times.add(p.t);
+      const pts = [...times]
+        .sort((a, b) => a - b)
+        .map((t) => ({ t, v: clamp(Math.min(this.gainAt(t), dip(t)), 0, 1) }));
+      try {
+        this.planGain(pts);
+      } catch (err) {
+        console.warn("[Skip Silence] Ausblenden des alten Tons fehlgeschlagen", err);
       }
     }
 
