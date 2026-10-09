@@ -1,0 +1,8 @@
+Skip Silence Vibe
+Copyright (c) 2026 quojus
+
+Ideas and constants of the dynamic threshold, hysteresis and lookahead
+(lib/detector.js) are adapted from Skip Silence
+(https://github.com/vantezzen/skip-silence), also MIT licensed:
+
+Copyright (c) 2019 Michael Xieyang Liu

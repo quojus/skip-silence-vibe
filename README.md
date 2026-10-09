@@ -8,7 +8,7 @@ Das Projekt ist vibe-gecodet: Es entstand im Dialog mit [Claude Code](https://cl
 
 Dieses Projekt gäbe es nicht ohne [**Skip Silence**](https://github.com/vantezzen/skip-silence) von [vantezzen](https://github.com/vantezzen). Die Extension hat mir lange Zeit treue Dienste geleistet und unzählige Stunden Podcasts und Vorträge kürzer gemacht. Danke dafür!
 
-Skip Silence Vibe ist ein Nachbau mit eigenen Erweiterungen, vor allem Einstellungen pro Tab, Modi und Übergangskurven. Der dynamische Schwellwert, die Hysterese und der Lookahead sind direkt vom Original inspiriert (MIT-Lizenz, siehe [LICENSE](LICENSE)). Wer eine ausgereifte Extension für Chrome und Firefox sucht, ist beim Original richtig:
+Skip Silence Vibe ist ein Nachbau mit eigenen Erweiterungen, vor allem Einstellungen pro Tab, Modi und Übergangskurven. Der dynamische Schwellwert, die Hysterese und der Lookahead sind direkt vom Original inspiriert (MIT-Lizenz, siehe [NOTICE](NOTICE)). Wer eine ausgereifte Extension für Chrome und Firefox sucht, ist beim Original richtig:
 
 - [Skip Silence für Firefox](https://addons.mozilla.org/firefox/addon/skip-silence/)
 - [Skip Silence für Chrome](https://chrome.google.com/webstore/detail/skip-silence/fhdmkhbefcbhakffdihhceaklaigdllh)
