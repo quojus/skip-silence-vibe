@@ -4,3 +4,4 @@ web-ext-artifacts/
 test/output/
 reviews/
 docs/
+.amo-upload-uuid
