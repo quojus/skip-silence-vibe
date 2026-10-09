@@ -3,3 +3,4 @@ web-ext-artifacts/
 .DS_Store
 test/output/
 reviews/
+docs/
