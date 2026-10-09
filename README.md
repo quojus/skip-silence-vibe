@@ -1,6 +1,17 @@
-# Skip Silence (eigen)
+# Skip Silence Vibe
 
-Firefox-Extension nach dem Vorbild von [Skip Silence](https://github.com/vantezzen/skip-silence). Sie erkennt Stille in Video und Audio und spielt diese Stellen beschleunigt ab. Alle Einstellungen gelten **pro Tab**.
+Firefox-Extension, die Stille in Video und Audio erkennt und diese Stellen beschleunigt abspielt. Alle Einstellungen gelten **pro Tab**: Der Podcast in einem Tab läuft mit anderen Werten als der Vortrag im nächsten.
+
+Das Projekt ist vibe-gecodet: Es entstand im Dialog mit [Claude Code](https://claude.com/claude-code). Jede Änderung lief durch automatische Tests in Firefox und durch mehrere unabhängige Review-Runden.
+
+## Danke, Skip Silence
+
+Dieses Projekt gäbe es nicht ohne [**Skip Silence**](https://github.com/vantezzen/skip-silence) von [vantezzen](https://github.com/vantezzen). Die Extension hat mir lange Zeit treue Dienste geleistet und unzählige Stunden Podcasts und Vorträge kürzer gemacht. Danke dafür!
+
+Skip Silence Vibe ist ein Nachbau mit eigenen Erweiterungen, vor allem Einstellungen pro Tab, Modi und Übergangskurven. Der dynamische Schwellwert, die Hysterese und der Lookahead sind direkt vom Original inspiriert (MIT-Lizenz, siehe [LICENSE](LICENSE)). Wer eine ausgereifte Extension für Chrome und Firefox sucht, ist beim Original richtig:
+
+- [Skip Silence für Firefox](https://addons.mozilla.org/firefox/addon/skip-silence/)
+- [Skip Silence für Chrome](https://chrome.google.com/webstore/detail/skip-silence/fhdmkhbefcbhakffdihhceaklaigdllh)
 
 ## Funktionen
 
@@ -16,17 +27,21 @@ Firefox-Extension nach dem Vorbild von [Skip Silence](https://github.com/vantezz
 
 ## Installation
 
-### Zum Ausprobieren (temporär)
+### Fertige Version (dauerhaft)
+
+Unter [Releases](../../releases) liegt eine von Mozilla signierte `.xpi`. Datei in ein Firefox-Fenster ziehen oder über `about:addons` → Zahnrad → *Add-on aus Datei installieren …* öffnen. Danach unter `about:addons` → *Berechtigungen* den Zugriff auf alle Websites erlauben.
+
+### Zum Ausprobieren aus dem Quellcode (temporär)
 
 1. `about:debugging#/runtime/this-firefox` öffnen
 2. *Temporäres Add-on laden …* → `manifest.json` aus diesem Ordner wählen
-3. Beim ersten Mal unter `about:addons` → Skip Silence (eigen) → *Berechtigungen* den Zugriff auf alle Websites erlauben. Manifest V3 verlangt das.
+3. Beim ersten Mal unter `about:addons` → Skip Silence → *Berechtigungen* den Zugriff auf alle Websites erlauben. Manifest V3 verlangt das.
 
 Das Add-on verschwindet beim Neustart von Firefox. Alternativ lädt `npm start` (`web-ext run`) eine Firefox-Instanz mit installierter Extension, die bei Dateiänderungen automatisch neu lädt.
 
-### Dauerhaft
+### Eigene Version signieren
 
-Normales Firefox installiert nur signierte Extensions. Die Signatur ist kostenlos und das Add-on bleibt privat („unlisted“):
+Normales Firefox installiert nur signierte Extensions. Die Signatur ist kostenlos, das Add-on bleibt privat („unlisted“). Für eine eigene Version die `id` in `manifest.json` (`browser_specific_settings.gecko.id`) ändern:
 
 1. API-Schlüssel unter <https://addons.mozilla.org/developers/addon/api/key/> anlegen
 2. Signieren:
@@ -72,5 +87,11 @@ Alle Browser-Tests laufen lautlos. Der E2E-Test installiert die echte Extension 
 - Medien in Shadow-DOMs und per `new Audio()` werden erkannt, wenn die Seite `play()` aufruft. Medien in offenen Shadow-DOMs findet zusätzlich eine Suche beim Einschalten und danach regelmäßig (frühestens alle 5 s, auf sehr großen Seiten seltener). Nicht erkannt werden Elemente in geschlossenen Shadow-DOMs, die ohne `play()`-Aufruf starten (`autoplay`-Attribut, eingebaute Bedienelemente).
 - Klänge unter 5 s (Effekte, Klick-Sounds) werden absichtlich nicht angehängt.
 - Stumme Medien (`muted`, Lautstärke 0, ohne Tonspur) werden nicht beschleunigt – ohne Ton gibt es nichts zu messen.
-- Normalgeschwindigkeit 1,0 läuft intern mit 1,0001, also 0,01 % schneller (eine Sekunde auf knapp drei Stunden). Bei exakt 1,0 würde Firefox beim nächsten Beschleunigen kurz alten Ton wiederholen.
-- Der Lookahead verschiebt den Ton um 60 ms gegenüber dem Bild. Das liegt unter der Wahrnehmungsgrenze von etwa 125 ms.
+- Normalgeschwindigkeit 1,0 läuft intern mit 1,0001, also 0,01 % schneller (eine Sekunde auf knapp drei Stunden). Bei exakt 1,0 würde Firefox beim nächsten Beschleunigen kurz alten Ton wiederholen. Folgen: Der Ton läuft dauerhaft durch die Zeitstreckung von Firefox und kommt etwa 25 ms später als das Bild; Player der Seite können „1.0001x“ statt „Normal“ anzeigen.
+- Schaltet man die Extension mitten im Ton aus und in einer Pause wieder ein, kann einmalig ein sehr leiser Rest alten Tons hörbar sein (bekannt, wird behoben).
+- Nur Firefox. Für Chrome wären Anpassungen nötig (Service Worker, `chrome.*`-API, Erkennung in Shadow DOM).
+- Der Lookahead verschiebt den Ton zusätzlich um 60 ms gegenüber dem Bild. Das liegt unter der Wahrnehmungsgrenze von etwa 125 ms.
+
+## Lizenz
+
+MIT, siehe [LICENSE](LICENSE).
