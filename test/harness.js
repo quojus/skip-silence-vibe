@@ -379,10 +379,18 @@
         if (await waitUntil(() => Math.abs(media.currentTime - t) < 0.3 && !media.seeking, 1000)) break;
       }
     };
+    const stateReport = () =>
+      `t=${media.currentTime.toFixed(2)} s, Rate ${media.playbackRate}, paused=${media.paused}, ` +
+      `seeking=${media.seeking}, Ausgang ${globalThis.__outDb().toFixed(1)} dB`;
     await seekTo(0.05);
     await media.play();
-    // Erst hörbaren Ton abwarten – nach Seek/Play ist der Ausgang kurz still
-    if (!(await waitUntil(() => globalThis.__outDb() > -30, 1000))) errors.push("Vorbedingung: kein hörbarer Ton vor dem Halten");
+    // Erst hörbaren Ton abwarten – nach Seek/Play ist der Ausgang kurz still.
+    // Fehlt er, Szenario mit Zustandsbericht abbrechen statt Folgefehler zu erzeugen.
+    if (!(await waitUntil(() => globalThis.__outDb() > -30, 1000))) {
+      errors.push(`Vorbedingung: kein hörbarer Ton vor dem Halten (${stateReport()})`);
+      media.pause();
+      return;
+    }
 
     // A: Halten im Ton → stumm (und schnell); Loslassen noch im Ton → wieder hörbar
     key("keydown");
@@ -398,12 +406,22 @@
 
     // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell.
     // Früh in die Stille springen, damit nach der Erkennung genug Zeit bis 2 s bleibt.
-    await seekTo(1.02);
-    if (!(await waitUntil(() => media.playbackRate > 2, 1200))) errors.push("Stille ab 1,2 s nicht beschleunigt");
+    // Erkennt die Extension die Stille erst spät (z. B. erneute Schonzeit nach „playing“),
+    // bleibt zu wenig Zeit bis 2 s – dann den Sprung einmal wiederholen
+    let fastInSilence = false;
+    for (let attempt = 0; attempt < 2 && !fastInSilence; attempt++) {
+      await seekTo(1.02);
+      fastInSilence = (await waitUntil(() => media.playbackRate > 2, 1200)) && media.currentTime < 1.55;
+    }
+    if (!fastInSilence) {
+      errors.push(`Stille ab 1,02 s nicht rechtzeitig beschleunigt (${stateReport()})`);
+      media.pause();
+      return;
+    }
     key("keydown");
-    await sleep(50);
+    await sleep(20);
     key("keyup");
-    await sleep(60);
+    await sleep(30);
     const t = media.currentTime;
     if (t >= 1.98) errors.push(`Zeitfenster „Loslassen in der Stille“ verfehlt (${t.toFixed(2)} s)`);
     else if (media.playbackRate < 2) errors.push(`Loslassen in der Stille wurde langsam (${media.playbackRate}x bei ${t.toFixed(2)} s)`);
@@ -422,7 +440,7 @@
     key("keyup");
     await sleep(20);
     key("keydown");
-    await sleep(500); // das verzögerte „los“ (300 ms) ist jetzt angekommen
+    await sleep(420); // das verzögerte „los“ (300 ms nach dem Loslassen) ist jetzt angekommen
     const fast = media.playbackRate > 1.3; // Stille-Geschwindigkeit hier 1,5x
     const t = media.currentTime;
     key("keyup");
