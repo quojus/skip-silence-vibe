@@ -19,6 +19,8 @@
     toggle: { muteSilence: false },
     hold: { muteSilence: false, holdKey: { enabled: true, code: "KeyH" } },
     holdmute: { muteSilence: true, lookahead: true, holdKey: { enabled: true, code: "KeyH" } },
+    // langsames Spulen, damit die Prüfung sicher im Ton (vor 1 s) bleibt
+    holdecho: { muteSilence: false, silenceSpeed: 1.5, holdKey: { enabled: true, code: "KeyH" } },
   };
   const scenario = new URLSearchParams(location.search).get("s") || "rate";
   // content.js läuft hier als Seitenskript: künstliche Tastendrücke zulassen (siehe trusted() in content.js)
@@ -41,8 +43,13 @@
       sendMessage: async (msg) => {
         globalThis.__harnessMessages.push(msg);
         if (msg.type === "getTabState") return { enabled: true, rev: 0, values: globalThis.__values() };
-        // Wie der Background: Spul-Taste an alle Frames (hier: an dieses) weitergeben
-        if (msg.type === "hold") listeners.forEach((fn) => fn({ type: "hold", on: msg.on }, {}));
+        // Wie der Background: Spul-Taste an alle Frames (hier: an dieses) weitergeben.
+        // holdecho: „los“-Echo stark verzögert (schlafender Background), „an“ fast sofort
+        if (msg.type === "hold") {
+          const echo = () => listeners.forEach((fn) => fn({ type: "hold", on: msg.on }, {}));
+          if (scenario === "holdecho") setTimeout(echo, msg.on ? 10 : 300);
+          else echo();
+        }
         return { ok: true };
       },
     },

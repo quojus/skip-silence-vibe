@@ -21,6 +21,7 @@ const SCENARIOS = [
   "stale",
   "hold",
   "holdmute",
+  "holdecho",
   // "toggle" ist bekannt offen: beim Einschalten in einer Pause bleibt ein Rest von etwa −34 dB
 ];
 const REPEAT = 1; // für Stabilitätsprüfungen erhöhen

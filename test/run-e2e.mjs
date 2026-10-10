@@ -136,9 +136,12 @@ const shadowOk = inShadow.t < 1 && Math.abs(inShadow.r - 1) < 0.001 && typed.inc
 console.log(`${shadowOk ? "✔" : "✖"} Spul-Taste im geschlossenen Shadow-DOM-Eingabefeld: Rate ${inShadow.r.toFixed(2)}, Eingabe „${typed}“`);
 if (!shadowOk) errors.push("Spul-Taste greift im Shadow-DOM-Eingabefeld oder Tippen kommt nicht an");
 await page.evaluate(() => {
-  document.activeElement.blur();
+  // Das innere Feld blurren – blur() auf dem Host ließe es im geschlossenen Shadow DOM fokussiert
+  window.__shadowInput().blur();
   window.__players.dom().pause();
 });
+const focusFree = await page.evaluate(() => document.activeElement === document.body);
+if (!focusFree) errors.push("Vorbedingung: Fokus liegt noch auf einem Element – folgende Prüfungen ohne Aussage");
 
 // Künstliches Tastenereignis der Seite: wirkt nicht – auch wenn die Seite den Testschalter
 // des Harness setzt (im echten Content-Script ist er für die Seite nicht erreichbar)
@@ -154,7 +157,16 @@ await page.evaluate(() => {
   document.body.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyH", bubbles: true, composed: true }));
   window.__players.dom().pause();
 });
-const syntheticOk = synthetic.t < 1 && Math.abs(synthetic.r - 1) < 0.001;
+// Positivkontrolle im selben Zustand: ein echter Tastendruck wirkt
+await playDomFromStart();
+await page.keyboard.down("h");
+const realFast = await page
+  .waitForFunction(() => window.__players.dom().playbackRate > 2, null, { timeout: 1500 })
+  .then(() => true, () => false);
+await page.keyboard.up("h");
+await page.evaluate(() => window.__players.dom().pause());
+if (!realFast) errors.push("Positivkontrolle: echter Tastendruck wirkt nicht – Prüfung „künstlich“ ohne Aussage");
+const syntheticOk = synthetic.t < 1 && Math.abs(synthetic.r - 1) < 0.001 && realFast;
 await page.evaluate(() => delete Object.prototype.__ssTestAllowUntrusted);
 console.log(`${syntheticOk ? "✔" : "✖"} Künstliches Tastenereignis ignoriert, auch mit gesetztem Testschalter (Rate ${synthetic.r.toFixed(2)})`);
 if (!syntheticOk) errors.push("Künstliches Tastenereignis löst die Spul-Taste aus");

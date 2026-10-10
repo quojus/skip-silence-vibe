@@ -381,11 +381,12 @@
     };
     await seekTo(0.05);
     await media.play();
-    await sleep(150);
+    // Erst hörbaren Ton abwarten – nach Seek/Play ist der Ausgang kurz still
+    if (!(await waitUntil(() => globalThis.__outDb() > -30, 1000))) errors.push("Vorbedingung: kein hörbarer Ton vor dem Halten");
 
-    // A: Halten im Ton → stumm; Loslassen noch im Ton → wieder hörbar
+    // A: Halten im Ton → stumm (und schnell); Loslassen noch im Ton → wieder hörbar
     key("keydown");
-    if (!(await waitUntil(() => globalThis.__outDb() < -90, 800))) errors.push("Halten mit Stummschalten nicht stumm");
+    if (!(await waitUntil(() => globalThis.__outDb() < -90 && media.playbackRate > 1.5, 800))) errors.push("Halten mit Stummschalten nicht stumm");
     key("keyup");
     const releasedAt = media.currentTime;
     // Einblenden mit Lookahead ist nach ~60–100 ms fertig; länger warten liefe in die Stille ab 1 s
@@ -395,8 +396,9 @@
     if (checkAt >= 0.97) errors.push(`Zeitfenster „Loslassen im Ton“ verfehlt (losgelassen ${releasedAt.toFixed(2)} s, geprüft ${checkAt.toFixed(2)} s)`);
     else if (db < -30) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB bei ${checkAt.toFixed(2)} s)`);
 
-    // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell
-    await seekTo(1.2);
+    // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell.
+    // Früh in die Stille springen, damit nach der Erkennung genug Zeit bis 2 s bleibt.
+    await seekTo(1.02);
     if (!(await waitUntil(() => media.playbackRate > 2, 1200))) errors.push("Stille ab 1,2 s nicht beschleunigt");
     key("keydown");
     await sleep(50);
@@ -406,6 +408,27 @@
     if (t >= 1.98) errors.push(`Zeitfenster „Loslassen in der Stille“ verfehlt (${t.toFixed(2)} s)`);
     else if (media.playbackRate < 2) errors.push(`Loslassen in der Stille wurde langsam (${media.playbackRate}x bei ${t.toFixed(2)} s)`);
     media.pause();
+  }
+
+  // Verspätetes „los“-Echo des Backgrounds (vom vorigen Druck) darf den haltenden Frame nicht
+  // überschreiben: drücken, loslassen, sofort wieder drücken – das Echo kommt erst danach
+  async function holdecho(errors) {
+    const key = (type) =>
+      document.body.dispatchEvent(new KeyboardEvent(type, { code: "KeyH", bubbles: true, composed: true, cancelable: true }));
+    await media.play();
+    await waitUntil(() => media.currentTime >= 0.1, 2000);
+    key("keydown");
+    await sleep(50);
+    key("keyup");
+    await sleep(20);
+    key("keydown");
+    await sleep(500); // das verzögerte „los“ (300 ms) ist jetzt angekommen
+    const fast = media.playbackRate > 1.3; // Stille-Geschwindigkeit hier 1,5x
+    const t = media.currentTime;
+    key("keyup");
+    media.pause();
+    if (t >= 1) errors.push(`Zeitfenster verfehlt (${t.toFixed(2)} s)`);
+    else if (!fast) errors.push("Verspätetes Echo hat die gehaltene Taste aufgehoben");
   }
 
   // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
@@ -468,6 +491,7 @@
     toggle,
     hold,
     holdmute,
+    holdecho,
   };
 
   document.getElementById("start").addEventListener("click", async () => {
