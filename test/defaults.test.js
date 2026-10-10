@@ -24,8 +24,9 @@ test("Spul-Taste: Standard aus, Validierung, Anzeige", () => {
   assert.equal(ok.shift, true);
   assert.equal(SS.holdKeyLabel(ok), "Shift+.");
   assert.equal(SS.holdKeyLabel({ code: "KeyF", ctrl: true, alt: false, shift: false, meta: false }), "Strg+F");
-  // Cmd/Meta wird nie übernommen (macOS meldet das Loslassen nicht zuverlässig)
-  assert.equal(SS.clampValues({ holdKey: { enabled: true, code: "KeyF", meta: true } }).holdKey.meta, false);
+  // Cmd/Meta nie: eine mit Cmd gespeicherte Taste wird ganz verworfen (nicht still zu „F“)
+  const cmd = SS.clampValues({ holdKey: { enabled: true, code: "KeyF", meta: true } }).holdKey;
+  assert.deepEqual([cmd.enabled, cmd.code, cmd.meta], [false, "", false]);
   // ungültiger Code oder reine Modifier-Taste → keine Taste, aus
   for (const code of ["<script>", "ShiftLeft", "Control", "", 5]) {
     const hk = SS.clampValues({ holdKey: { enabled: true, code } }).holdKey;

@@ -853,7 +853,9 @@
   browser.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return undefined;
     if (msg.type === "applyState") applyState(msg.state);
-    else if (msg.type === "hold") setHold(!!msg.on);
+    // Der haltende Frame kennt seinen Zustand selbst – ein verspätetes Echo des Backgrounds
+    // (z. B. „los“ vom vorigen Druck) darf ihn nicht überschreiben
+    else if (msg.type === "hold" && !keyHeld) setHold(!!msg.on);
     else if (msg.type === "getLevel") return Promise.resolve(levelInfo());
     return undefined;
   });

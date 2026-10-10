@@ -368,25 +368,43 @@
   }
 
   // Spul-Taste mit Stummschalten und Lookahead: stumm beim Halten, nach dem Loslassen im Ton
-  // wieder hörbar; Loslassen in der Stille bleibt schnell (die Erkennung sagt dort Stille)
+  // wieder hörbar; Loslassen in der Stille bleibt schnell (die Erkennung sagt dort Stille).
+  // Jede Prüfung hat ein festes Zeitfenster – wird es verfehlt, ist das ein Fehler, kein Überspringen.
   async function holdmute(errors) {
-    const key = (type) => document.body.dispatchEvent(new KeyboardEvent(type, { code: "KeyH", bubbles: true, cancelable: true }));
+    const key = (type) =>
+      document.body.dispatchEvent(new KeyboardEvent(type, { code: "KeyH", bubbles: true, composed: true, cancelable: true }));
+    const seekTo = async (t) => {
+      for (let i = 0; i < 3; i++) {
+        media.currentTime = t;
+        if (await waitUntil(() => Math.abs(media.currentTime - t) < 0.3 && !media.seeking, 1000)) break;
+      }
+    };
+    await seekTo(0.05);
     await media.play();
-    await waitUntil(() => media.currentTime >= 0.1, 2000);
+    await sleep(150);
+
+    // A: Halten im Ton → stumm; Loslassen noch im Ton → wieder hörbar
     key("keydown");
     if (!(await waitUntil(() => globalThis.__outDb() < -90, 800))) errors.push("Halten mit Stummschalten nicht stumm");
     key("keyup");
-    await sleep(300);
-    if (media.currentTime < 1) {
-      const db = globalThis.__outDb();
-      if (db < -30) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB)`);
-    }
-    await waitUntil(() => media.currentTime >= 1.5 && media.playbackRate > 2, 4000);
+    const releasedAt = media.currentTime;
+    // Einblenden mit Lookahead ist nach ~60–100 ms fertig; länger warten liefe in die Stille ab 1 s
+    await sleep(150);
+    const checkAt = media.currentTime;
+    const db = globalThis.__outDb();
+    if (checkAt >= 0.97) errors.push(`Zeitfenster „Loslassen im Ton“ verfehlt (losgelassen ${releasedAt.toFixed(2)} s, geprüft ${checkAt.toFixed(2)} s)`);
+    else if (db < -30) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB bei ${checkAt.toFixed(2)} s)`);
+
+    // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell
+    await seekTo(1.2);
+    if (!(await waitUntil(() => media.playbackRate > 2, 1200))) errors.push("Stille ab 1,2 s nicht beschleunigt");
     key("keydown");
-    await sleep(150);
+    await sleep(50);
     key("keyup");
-    await sleep(150);
-    if (media.currentTime < 1.95 && media.playbackRate < 2) errors.push(`Loslassen in der Stille wurde langsam (${media.playbackRate}x)`);
+    await sleep(60);
+    const t = media.currentTime;
+    if (t >= 1.98) errors.push(`Zeitfenster „Loslassen in der Stille“ verfehlt (${t.toFixed(2)} s)`);
+    else if (media.playbackRate < 2) errors.push(`Loslassen in der Stille wurde langsam (${media.playbackRate}x bei ${t.toFixed(2)} s)`);
     media.pause();
   }
 

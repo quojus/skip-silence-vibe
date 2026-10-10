@@ -140,9 +140,14 @@ await page.evaluate(() => {
   window.__players.dom().pause();
 });
 
-// Künstliches Tastenereignis der Seite: wirkt nicht
+// Künstliches Tastenereignis der Seite: wirkt nicht – auch wenn die Seite den Testschalter
+// des Harness setzt (im echten Content-Script ist er für die Seite nicht erreichbar)
 await playDomFromStart();
-await page.evaluate(() => document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyH", bubbles: true, composed: true })));
+await page.evaluate(() => {
+  window.__ssTestAllowUntrusted = true;
+  Object.prototype.__ssTestAllowUntrusted = true;
+  document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyH", bubbles: true, composed: true }));
+});
 await page.waitForTimeout(400);
 const synthetic = await dom();
 await page.evaluate(() => {
@@ -150,7 +155,8 @@ await page.evaluate(() => {
   window.__players.dom().pause();
 });
 const syntheticOk = synthetic.t < 1 && Math.abs(synthetic.r - 1) < 0.001;
-console.log(`${syntheticOk ? "✔" : "✖"} Künstliches Tastenereignis ignoriert (Rate ${synthetic.r.toFixed(2)})`);
+await page.evaluate(() => delete Object.prototype.__ssTestAllowUntrusted);
+console.log(`${syntheticOk ? "✔" : "✖"} Künstliches Tastenereignis ignoriert, auch mit gesetztem Testschalter (Rate ${synthetic.r.toFixed(2)})`);
 if (!syntheticOk) errors.push("Künstliches Tastenereignis löst die Spul-Taste aus");
 
 // Medium im iframe, Fokus in der Hauptseite: die Taste steuert es mit
