@@ -407,9 +407,11 @@
     await waitUntil(() => globalThis.__outDb() > -30 || media.currentTime >= 0.97, 600);
     const checkAt = media.currentTime;
     const db = globalThis.__outDb();
-    // Früh genug losgelassen (≥ 70 ms Ton übrig) und trotzdem nicht hörbar → stumm geblieben
-    if (db < -30 && releasedAt < 0.9) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB, losgelassen ${releasedAt.toFixed(2)} s, geprüft ${checkAt.toFixed(2)} s)`);
+    // Früh genug losgelassen (≥ 170 ms Ton übrig) und trotzdem nicht hörbar → stumm geblieben.
+    // Hörbar, aber erst spät → Einblenden verspätet (korrekt: 0,05–0,18 s Medienzeit nach dem Loslassen)
+    if (db < -30 && releasedAt < 0.8) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB, losgelassen ${releasedAt.toFixed(2)} s, geprüft ${checkAt.toFixed(2)} s)`);
     else if (db < -30) errors.push(`Zeitfenster „Loslassen im Ton“ verfehlt (losgelassen ${releasedAt.toFixed(2)} s)`);
+    else if (checkAt - releasedAt > 0.25) errors.push(`Einblenden nach dem Loslassen zu spät (${((checkAt - releasedAt) * 1000).toFixed(0)} ms Medienzeit)`);
 
     // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell.
     // Früh in die Stille springen, damit nach der Erkennung genug Zeit bis 2 s bleibt.

@@ -37,6 +37,24 @@ const browser = await firefox.launch({
     "media.volume_scale": "0.0", // lautlos: nichts über die Lautsprecher ausgeben
   },
 });
+// Aufwärmen: Die erste Wiedergabe in einem frischen Firefox bleibt unter Last selten ~14 s
+// hängen (auch ohne Extension beobachtet). Einmal abspielen, bis sie vorankommt.
+{
+  const warm = await browser.newPage();
+  await warm.goto(`${origin}/test/harness.html?s=rate`);
+  const ok = await warm.evaluate(async () => {
+    const m = document.getElementById("media");
+    m.muted = true;
+    await m.play().catch(() => {});
+    const end = performance.now() + 30000;
+    while (m.currentTime < 0.3 && performance.now() < end) await new Promise((r) => setTimeout(r, 50));
+    m.pause();
+    return m.currentTime >= 0.3;
+  });
+  if (!ok) console.log("Hinweis: Aufwärm-Wiedergabe kam nicht voran (Umgebung)");
+  await warm.close();
+}
+
 let failed = 0;
 for (let run = 1; run <= REPEAT; run++) {
   for (const s of SCENARIOS) {
