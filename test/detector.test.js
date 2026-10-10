@@ -55,6 +55,18 @@ test("Seeking und Waiting wie Pause", () => {
     assert.equal(feed(-70, 5).phase, "sound");
   }
 });
+test("Sofortige Unterbrechung zwischen zwei Messwerten: danach instant Ton und Schonzeit", () => {
+  const { d, feed } = make({ graceMs: 100, minSilenceMs: 100 });
+  feed(-20); feed(-70, 10);
+  assert.equal(d.phase, "silence");
+  // seeking/seeked in derselben Millisekunde: nur die Meldung mit windowMs 0
+  d.update({ windowMs: 0, levelDb: -Infinity, mediaState: "seeking" });
+  const r = feed(-70);
+  assert.equal(r.phase, "sound"); assert.equal(r.instant, true);
+  assert.equal(feed(-70, 4).phase, "sound"); // Schonzeit
+  assert.equal(feed(-70, 6).phase, "silence"); // danach wieder Stille
+});
+
 test("Schonzeit unterdrückt Stille", () => {
   const { feed } = make({ graceMs: 300, minSilenceMs: 100 });
   feed(-70);

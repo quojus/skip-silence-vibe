@@ -394,7 +394,12 @@
 
     // A: Halten im Ton → stumm (und schnell); Loslassen noch im Ton → wieder hörbar
     key("keydown");
-    if (!(await waitUntil(() => globalThis.__outDb() < -90 && media.playbackRate > 1.5, 800))) errors.push("Halten mit Stummschalten nicht stumm");
+    if (!(await waitUntil(() => globalThis.__outDb() < -90 && media.playbackRate > 1.5, 800))) {
+      errors.push(`Halten mit Stummschalten nicht stumm (${stateReport()})`);
+      key("keyup");
+      media.pause();
+      return;
+    }
     key("keyup");
     const releasedAt = media.currentTime;
     // Einblenden mit Lookahead ist nach ~60–100 ms fertig; länger warten liefe in die Stille ab 1 s
@@ -406,13 +411,9 @@
 
     // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell.
     // Früh in die Stille springen, damit nach der Erkennung genug Zeit bis 2 s bleibt.
-    // Erkennt die Extension die Stille erst spät (z. B. erneute Schonzeit nach „playing“),
-    // bleibt zu wenig Zeit bis 2 s – dann den Sprung einmal wiederholen
-    let fastInSilence = false;
-    for (let attempt = 0; attempt < 2 && !fastInSilence; attempt++) {
-      await seekTo(1.02);
-      fastInSilence = (await waitUntil(() => media.playbackRate > 2, 1200)) && media.currentTime < 1.55;
-    }
+    // Nach dem Sprung: Schonzeit (hier 50 ms) + Mindestdauer Stille, dann schnell – vor 1,8 s
+    await seekTo(1.02);
+    const fastInSilence = (await waitUntil(() => media.playbackRate > 2, 1200)) && media.currentTime < 1.8;
     if (!fastInSilence) {
       errors.push(`Stille ab 1,02 s nicht rechtzeitig beschleunigt (${stateReport()})`);
       media.pause();
@@ -447,6 +448,22 @@
     media.pause();
     if (t >= 1) errors.push(`Zeitfenster verfehlt (${t.toFixed(2)} s)`);
     else if (!fast) errors.push("Verspätetes Echo hat die gehaltene Taste aufgehoben");
+  }
+
+  // Sprung innerhalb der Stille (seeking/seeked in derselben Millisekunde): kurz normal
+  // (Schonzeit), dann wieder beschleunigt – nicht bis zum nächsten Ton bei 1x
+  async function seeksilence(errors) {
+    await media.play();
+    if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) errors.push("Stille 1–2 s nicht beschleunigt");
+    for (let i = 0; i < 3; i++) {
+      media.currentTime = 3.1;
+      if (await waitUntil(() => media.currentTime >= 3.05 && media.currentTime < 3.5 && !media.seeking, 1000)) break;
+    }
+    const again = await waitUntil(() => media.playbackRate > 2, 1500);
+    const t = media.currentTime;
+    media.pause();
+    if (!again) errors.push(`Nach Sprung innerhalb der Stille nicht wieder beschleunigt (bei ${t.toFixed(2)} s)`);
+    else if (t >= 4) errors.push(`Zeitfenster verfehlt (${t.toFixed(2)} s)`);
   }
 
   // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
@@ -510,6 +527,7 @@
     hold,
     holdmute,
     holdecho,
+    seeksilence,
   };
 
   document.getElementById("start").addEventListener("click", async () => {

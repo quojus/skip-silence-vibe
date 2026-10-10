@@ -303,8 +303,14 @@
         this.zeroMs = 0;
         this.foreign = isUnsupported(this.el);
       }
-      // Pause, Spulen, Puffern: sofort zurück auf Normal, damit danach garantiert Ton da ist
-      if (this.mediaState !== "playing") this.resetOutput();
+      if (this.mediaState !== "playing") {
+        // Den Detektor sofort informieren: Bei einem Sprung in gepufferte Daten kommen seeking,
+        // waiting, seeked und playing in derselben Millisekunde – zwischen zwei Messwerten.
+        // Ohne diese Meldung bliebe er in „Stille“, ohne Schonzeit und ohne neuen Übergang.
+        this.detector.update({ windowMs: 0, levelDb: -Infinity, mediaState: this.mediaState });
+        // Pause, Spulen, Puffern: sofort zurück auf Normal, damit danach garantiert Ton da ist
+        this.resetOutput();
+      }
     }
 
     /** Zurück zum Ton: Geschwindigkeit über rampOut, Lautstärke passend zum Lookahead einblenden. */
