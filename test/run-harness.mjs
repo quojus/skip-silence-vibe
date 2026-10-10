@@ -37,14 +37,16 @@ const browser = await firefox.launch({
     "media.volume_scale": "0.0", // lautlos: nichts über die Lautsprecher ausgeben
   },
 });
-// Aufwärmen: Die erste Wiedergabe in einem frischen Firefox bleibt unter Last selten ~14 s
-// hängen (auch ohne Extension beobachtet). Einmal abspielen, bis sie vorankommt.
-{
+// Aufwärmen: Die erste Wiedergabe in einem frischen Firefox blieb unter Last selten ~14 s
+// hängen. Ursache offen – vermutlich das erste Öffnen des Audio-Ausgangs, ohne content.js
+// trat es in Messungen nicht auf. Deshalb einmal hörbar abspielen (der Runner ist ohnehin
+// lautlos, media.volume_scale = 0) – das baut AudioContext, Audio-Kette und Ausgang auf.
+// Optional: ein Fehler hier bricht den Testlauf nicht ab.
+try {
   const warm = await browser.newPage();
   await warm.goto(`${origin}/test/harness.html?s=rate`);
   const ok = await warm.evaluate(async () => {
     const m = document.getElementById("media");
-    m.muted = true;
     await m.play().catch(() => {});
     const end = performance.now() + 30000;
     while (m.currentTime < 0.3 && performance.now() < end) await new Promise((r) => setTimeout(r, 50));
@@ -53,6 +55,8 @@ const browser = await firefox.launch({
   });
   if (!ok) console.log("Hinweis: Aufwärm-Wiedergabe kam nicht voran (Umgebung)");
   await warm.close();
+} catch (err) {
+  console.log(`Hinweis: Aufwärmen fehlgeschlagen (${err.message.split("\n")[0]}) – Tests laufen trotzdem`);
 }
 
 let failed = 0;
