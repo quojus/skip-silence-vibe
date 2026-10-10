@@ -18,8 +18,11 @@
     stale: { muteSilence: false },
     toggle: { muteSilence: false },
     hold: { muteSilence: false, holdKey: { enabled: true, code: "KeyH" } },
+    holdmute: { muteSilence: true, lookahead: true, holdKey: { enabled: true, code: "KeyH" } },
   };
   const scenario = new URLSearchParams(location.search).get("s") || "rate";
+  // content.js läuft hier als Seitenskript: künstliche Tastendrücke zulassen (siehe trusted() in content.js)
+  globalThis.__ssTestAllowUntrusted = true;
   const listeners = [];
   globalThis.__scenario = scenario;
   globalThis.__harnessMessages = [];

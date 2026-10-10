@@ -116,6 +116,66 @@ console.log(`${heldFast && released ? "✔" : "✖"} Spul-Taste: halten ${heldFa
 if (!heldFast || !released) errors.push("Spul-Taste wirkt mit echter Extension nicht");
 if (heldAt >= 1) errors.push("Spul-Taste erst in der Stille geprüft – Test ohne Aussage");
 
+const dom = () => page.evaluate(() => ({ t: window.__players.dom().currentTime, r: window.__players.dom().playbackRate }));
+const playDomFromStart = () =>
+  page.evaluate(async () => {
+    const el = window.__players.dom();
+    el.currentTime = 0;
+    await el.play();
+  });
+
+// Eingabefeld im geschlossenen Shadow DOM: Tippen kommt an, kein Spulen
+await playDomFromStart();
+await page.evaluate(() => window.__shadowInput().focus());
+await page.keyboard.down("h");
+await page.waitForTimeout(400);
+const inShadow = await dom();
+await page.keyboard.up("h");
+const typed = await page.evaluate(() => window.__shadowInput().value);
+const shadowOk = inShadow.t < 1 && Math.abs(inShadow.r - 1) < 0.001 && typed.includes("h");
+console.log(`${shadowOk ? "✔" : "✖"} Spul-Taste im geschlossenen Shadow-DOM-Eingabefeld: Rate ${inShadow.r.toFixed(2)}, Eingabe „${typed}“`);
+if (!shadowOk) errors.push("Spul-Taste greift im Shadow-DOM-Eingabefeld oder Tippen kommt nicht an");
+await page.evaluate(() => {
+  document.activeElement.blur();
+  window.__players.dom().pause();
+});
+
+// Künstliches Tastenereignis der Seite: wirkt nicht
+await playDomFromStart();
+await page.evaluate(() => document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyH", bubbles: true, composed: true })));
+await page.waitForTimeout(400);
+const synthetic = await dom();
+await page.evaluate(() => {
+  document.body.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyH", bubbles: true, composed: true }));
+  window.__players.dom().pause();
+});
+const syntheticOk = synthetic.t < 1 && Math.abs(synthetic.r - 1) < 0.001;
+console.log(`${syntheticOk ? "✔" : "✖"} Künstliches Tastenereignis ignoriert (Rate ${synthetic.r.toFixed(2)})`);
+if (!syntheticOk) errors.push("Künstliches Tastenereignis löst die Spul-Taste aus");
+
+// Medium im iframe, Fokus in der Hauptseite: die Taste steuert es mit
+const frame = page.frames().find((f) => f.url().endsWith("/test/e2e-frame.html"));
+await frame.evaluate(async () => {
+  const a = document.getElementById("fa");
+  a.currentTime = 0;
+  await a.play();
+});
+await page.mouse.click(5, 5);
+await frame.waitForFunction(() => document.getElementById("fa").currentTime >= 0.15);
+await page.keyboard.down("h");
+const frameFast = await frame
+  .waitForFunction(() => document.getElementById("fa").playbackRate > 2, null, { timeout: 1500 })
+  .then(() => true, () => false);
+const frameAt = await frame.evaluate(() => document.getElementById("fa").currentTime);
+await page.keyboard.up("h");
+const frameReleased = await frame
+  .waitForFunction(() => Math.abs(document.getElementById("fa").playbackRate - 1) < 0.001, null, { timeout: 1000 })
+  .then(() => true, () => false);
+await frame.evaluate(() => document.getElementById("fa").pause());
+const frameOk = frameFast && frameReleased && frameAt < 1;
+console.log(`${frameOk ? "✔" : "✖"} Spul-Taste steuert Medium im iframe (bei ${frameAt.toFixed(2)} s, loslassen ${frameReleased ? "normal" : "nicht normal"})`);
+if (!frameOk) errors.push("Spul-Taste erreicht das Medium im iframe nicht");
+
 const level = await popup(`async () => browser.tabs.sendMessage(${testTabId}, { type: "getLevel" }, { frameId: 0 })`);
 console.log(`getLevel: ${JSON.stringify(level)}`);
 // DOM + Shadow DOM bleiben bekannt; das pausierte new Audio() (nicht im DOM) wird aufgeräumt

@@ -13,7 +13,7 @@ const TYPES = {
   ".wav": "audio/wav",
 };
 
-const STRICT_CSP = "default-src 'none'; script-src 'self'; media-src 'self'; style-src 'self'";
+const STRICT_CSP = "default-src 'none'; script-src 'self'; media-src 'self'; style-src 'self'; frame-src 'self'";
 
 export function serve() {
   const server = createServer(async (req, res) => {

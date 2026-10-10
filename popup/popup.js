@@ -13,6 +13,7 @@
     "unknown-mode": "Modus nicht gefunden.",
     "no-mode": "Kein Modus geladen.",
     "bad-key": "Diese Taste lässt sich nicht verwenden.",
+    "meta-key": "Cmd-Kombinationen gehen nicht (macOS meldet das Loslassen nicht zuverlässig).",
   };
 
   const $ = (id) => document.getElementById(id);
@@ -195,6 +196,10 @@
     if (e.code === "Escape") return stopCapture();
     // Auf die eigentliche Taste warten – Strg/Alt/Shift allein zählen nicht
     if (/^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/.test(e.code)) return;
+    if (e.metaKey) {
+      stopCapture();
+      return showError({ code: "meta-key" });
+    }
     const hk = SS.clampValues({
       holdKey: { enabled: true, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey },
     }).holdKey;
@@ -208,6 +213,12 @@
 
   function buildHoldKey() {
     $("holdCapture").addEventListener("click", () => (capturing ? stopCapture() : startCapture()));
+    // Klick oder Fokus woanders beendet das Festlegen – sonst landet Tippen im Namensfeld hier
+    const cancelElsewhere = (e) => {
+      if (capturing && e.target !== $("holdCapture")) stopCapture();
+    };
+    document.addEventListener("pointerdown", cancelElsewhere, true);
+    document.addEventListener("focusin", cancelElsewhere, true);
     window.addEventListener("keydown", onCaptureKey, true);
     $("holdEnabled").addEventListener("change", (e) => {
       // Ohne festgelegte Taste erst eine Taste abfragen

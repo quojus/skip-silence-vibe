@@ -284,8 +284,17 @@
   // Spul-Taste: halten = Stille-Geschwindigkeit, loslassen = normal. Nicht in Eingabefeldern,
   // nicht mit falschen Modifiern, Loslassen auch bei Fokusverlust.
   async function hold(errors) {
+    // Negativ-Prüfungen nur im Ton: in der Stille beschleunigt die Erkennung ohnehin
+    const toTone = async () => {
+      // Kein Warten auf „seeked“: Firefox lässt es gelegentlich aus – Position abfragen, ggf. wiederholen
+      for (let i = 0; i < 3; i++) {
+        media.currentTime = 0.1;
+        if (await waitUntil(() => media.currentTime < 0.5 && !media.seeking, 1000)) break;
+      }
+      await sleep(150);
+    };
     const key = (type, o = {}, target = document.body) => {
-      const e = new KeyboardEvent(type, { code: "KeyH", key: "h", bubbles: true, cancelable: true, ...o });
+      const e = new KeyboardEvent(type, { code: "KeyH", key: "h", bubbles: true, composed: true, cancelable: true, ...o });
       target.dispatchEvent(e);
       return e;
     };
@@ -298,11 +307,13 @@
     key("keyup");
     if (!(await waitUntil(() => isNormal(media.playbackRate), 400))) errors.push(`Loslassen nicht normal (${media.playbackRate}x)`);
 
+    await toTone();
     key("keydown", { shiftKey: true });
     await sleep(300);
     if (!isNormal(media.playbackRate)) errors.push("Taste mit Shift löst trotzdem aus");
     key("keyup", { shiftKey: true });
 
+    await toTone();
     const input = document.createElement("input");
     document.body.append(input);
     key("keydown", {}, input);
@@ -311,10 +322,71 @@
     key("keyup", {}, input);
     input.remove();
 
+    // Eingabefeld in einem offenen Shadow DOM
+    const host = document.createElement("div");
+    document.body.append(host);
+    const shadowInput = document.createElement("input");
+    host.attachShadow({ mode: "open" }).append(shadowInput);
+    shadowInput.focus();
+    await toTone();
+    key("keydown", {}, shadowInput);
+    await sleep(300);
+    if (!isNormal(media.playbackRate)) errors.push("Taste im Shadow-DOM-Eingabefeld löst aus");
+    key("keyup", {}, shadowInput);
+    host.remove();
+
     key("keydown");
     if (!(await waitUntil(() => media.playbackRate > 2, 600))) errors.push("Zweites Halten nicht beschleunigt");
     window.dispatchEvent(new Event("blur"));
     if (!(await waitUntil(() => isNormal(media.playbackRate), 400))) errors.push("Fokusverlust lässt die Taste nicht los");
+
+    // Wiederholung nach Loslassen eines Modifiers geht nicht an die Seite
+    key("keydown");
+    const repeat = key("keydown", { repeat: true, shiftKey: true });
+    if (!repeat.defaultPrevented) errors.push("Wiederholung der gehaltenen Taste erreicht die Seite");
+
+    // Pause und Play bei gehaltener Taste: danach greift sie wieder
+    media.pause();
+    await sleep(100);
+    if (!isNormal(media.playbackRate)) errors.push(`Pause bei gehaltener Taste nicht normal (${media.playbackRate}x)`);
+    await toTone();
+    await media.play();
+    if (!(await waitUntil(() => media.playbackRate > 2, 800))) errors.push("Nach Play bei gehaltener Taste nicht wieder schnell");
+    key("keyup");
+    await toTone();
+    if (!(await waitUntil(() => isNormal(media.playbackRate), 400))) errors.push("Loslassen nach Play nicht normal");
+
+    // Ohne Testschalter: künstliche (nicht vertrauenswürdige) Ereignisse werden ignoriert
+    globalThis.__ssTestAllowUntrusted = false;
+    await toTone();
+    key("keydown");
+    await sleep(300);
+    if (!isNormal(media.playbackRate)) errors.push("Künstliches Tastenereignis löst die Spul-Taste aus");
+    key("keyup");
+    globalThis.__ssTestAllowUntrusted = true;
+    media.pause();
+  }
+
+  // Spul-Taste mit Stummschalten und Lookahead: stumm beim Halten, nach dem Loslassen im Ton
+  // wieder hörbar; Loslassen in der Stille bleibt schnell (die Erkennung sagt dort Stille)
+  async function holdmute(errors) {
+    const key = (type) => document.body.dispatchEvent(new KeyboardEvent(type, { code: "KeyH", bubbles: true, cancelable: true }));
+    await media.play();
+    await waitUntil(() => media.currentTime >= 0.1, 2000);
+    key("keydown");
+    if (!(await waitUntil(() => globalThis.__outDb() < -90, 800))) errors.push("Halten mit Stummschalten nicht stumm");
+    key("keyup");
+    await sleep(300);
+    if (media.currentTime < 1) {
+      const db = globalThis.__outDb();
+      if (db < -30) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB)`);
+    }
+    await waitUntil(() => media.currentTime >= 1.5 && media.playbackRate > 2, 4000);
+    key("keydown");
+    await sleep(150);
+    key("keyup");
+    await sleep(150);
+    if (media.currentTime < 1.95 && media.playbackRate < 2) errors.push(`Loslassen in der Stille wurde langsam (${media.playbackRate}x)`);
     media.pause();
   }
 
@@ -377,6 +449,7 @@
     stale,
     toggle,
     hold,
+    holdmute,
   };
 
   document.getElementById("start").addEventListener("click", async () => {

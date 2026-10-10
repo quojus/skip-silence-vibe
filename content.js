@@ -247,6 +247,7 @@
       const wasConnected = this.connected;
       this.connected = false;
       this.ramp = null;
+      this.holding = false;
       this.lastSample = null;
       if (!wasConnected) return;
       try {
@@ -306,6 +307,19 @@
       if (this.mediaState !== "playing") this.resetOutput();
     }
 
+    /** Zurück zum Ton: Geschwindigkeit über rampOut, Lautstärke passend zum Lookahead einblenden. */
+    backToSound() {
+      const v = this.values;
+      this.startRamp(v.normalSpeed, v.rampOut);
+      const dur = v.rampOut.durationMs / 1000;
+      if (v.muteSilence && this.lookaheadOn()) {
+        // Einblenden so planen, dass es kurz vor dem verzögerten Ton fertig ist
+        this.setGain(1, Math.min(dur, C.UNMUTE_LEAD_S), v.rampOut.bezier, C.LOOKAHEAD_S - C.UNMUTE_LEAD_S);
+      } else if (this.gainTarget !== 1) {
+        this.setGain(1, dur, v.rampOut.bezier);
+      }
+    }
+
     /** Spul-Taste: solange gehalten, gilt die Stelle als Stille (gleiche Kurven, ggf. stumm). */
     applyHold() {
       if (!this.connected) return;
@@ -319,10 +333,7 @@
         this.holding = false;
         // Loslassen: zurück zu dem, was die automatische Erkennung gerade sagt
         const silent = this.detector.phase === "silence" && this.mediaState === "playing" && this.measurable();
-        if (!silent) {
-          this.startRamp(v.normalSpeed, v.rampOut);
-          if (this.gainTarget !== 1) this.setGain(1, v.rampOut.durationMs / 1000, v.rampOut.bezier);
-        }
+        if (!silent) this.backToSound();
       }
     }
 
@@ -386,14 +397,7 @@
         this.setRate(v.normalSpeed);
         this.setGain(1, 0);
       } else {
-        this.startRamp(v.normalSpeed, v.rampOut);
-        const dur = v.rampOut.durationMs / 1000;
-        if (v.muteSilence && this.lookaheadOn()) {
-          // Einblenden so planen, dass es kurz vor dem verzögerten Ton fertig ist
-          this.setGain(1, Math.min(dur, C.UNMUTE_LEAD_S), v.rampOut.bezier, C.LOOKAHEAD_S - C.UNMUTE_LEAD_S);
-        } else if (this.gainTarget !== 1) {
-          this.setGain(1, dur, v.rampOut.bezier);
-        }
+        this.backToSound();
       }
     }
 
@@ -738,6 +742,7 @@
   }
 
   let keyHeld = false; // Taste in diesem Frame gedrückt
+  let heldCode = ""; // gedrückter Code – das Loslassen zählt auch, wenn die Taste inzwischen geändert wurde
 
   function announceHold(on) {
     setHold(on);
@@ -748,23 +753,53 @@
   function releaseKey() {
     if (!keyHeld) return;
     keyHeld = false;
+    heldCode = "";
     announceHold(false);
   }
 
-  function isEditable(e) {
-    const t = e.composedPath?.()[0] ?? e.target;
+  /** Tief fokussiertes Element – auch in geschlossenen Shadow Roots (Firefox: openOrClosedShadowRoot). */
+  function deepActiveElement() {
+    let el = document.activeElement;
+    for (let i = 0; el && i < 32; i++) {
+      const root = el.openOrClosedShadowRoot ?? el.shadowRoot;
+      if (!root || !root.activeElement) break;
+      el = root.activeElement;
+    }
+    return el;
+  }
+
+  function editable(t) {
     return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName ?? ""));
   }
+
+  function isEditable(e) {
+    return editable(e.composedPath?.()[0] ?? e.target) || editable(deepActiveElement());
+  }
+
+  // Nur echte Tastendrücke: Seitenskripte (auch fremde iframes) dürfen die Spul-Taste nicht
+  // auslösen. Der Harness lädt content.js als Seitenskript und schaltet das gezielt ab –
+  // im echten Content-Script ist diese Variable für Seiten nicht erreichbar.
+  const trusted = (e) => e.isTrusted || globalThis.__ssTestAllowUntrusted === true;
 
   window.addEventListener(
     "keydown",
     (e) => {
-      if (!state.enabled || !SS.matchesHoldKey(state.values.holdKey, e) || isEditable(e)) return;
+      if (!trusted(e) || !state.enabled) return;
+      // Wiederholung der gehaltenen Taste immer abfangen – auch wenn ein Modifier schon los ist
+      if (keyHeld && e.code === heldCode) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (!SS.matchesHoldKey(state.values.holdKey, e) || isEditable(e)) return;
       // Die Seite soll die Taste nicht zusätzlich verarbeiten (z. B. eigene Kürzel)
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (keyHeld) return; // Tastenwiederholung
+      // Ein echter Tastendruck ist auch eine Nutzergeste: wartenden AudioContext starten
+      if (ctx && ctx.state !== "running") ctx.resume().catch(() => {});
+      if (keyHeld) return;
       keyHeld = true;
+      heldCode = e.code;
       announceHold(true);
     },
     true,
@@ -773,15 +808,16 @@
     "keyup",
     (e) => {
       // Beim Loslassen zählt nur die Taste – Modifier dürfen schon vorher losgelassen sein
-      if (!keyHeld || e.code !== state.values.holdKey.code) return;
+      if (!keyHeld || !trusted(e) || e.code !== heldCode) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       releaseKey();
     },
     true,
   );
-  // Fokus weg (anderes Fenster, anderer Tab): Loslassen käme hier nie an
+  // Fokus weg (anderes Fenster, anderer Tab) oder Frame verschwindet: Loslassen käme nie an
   window.addEventListener("blur", releaseKey);
+  window.addEventListener("pagehide", releaseKey);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) releaseKey();
   });

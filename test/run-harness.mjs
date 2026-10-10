@@ -20,10 +20,11 @@ const SCENARIOS = [
   "mixed",
   "stale",
   "hold",
+  "holdmute",
   // "toggle" ist bekannt offen: beim Einschalten in einer Pause bleibt ein Rest von etwa −34 dB
 ];
 const REPEAT = 1; // für Stabilitätsprüfungen erhöhen
-const TIMEOUT_MS = 30000;
+const TIMEOUT_MS = 60000;
 // =====================
 
 const { origin, server } = await serve();

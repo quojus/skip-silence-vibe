@@ -156,6 +156,18 @@ await settle();
 hk = (await lastApply())?.values.holdKey;
 check(hk?.enabled === false && hk.code === "KeyJ", "Ausschalten behält die Taste");
 
+await page.click("#holdCapture");
+await page.keyboard.press("Meta+k");
+await settle();
+check((await page.textContent("#msg")).includes("Cmd"), "Cmd-Kombination wird abgelehnt");
+check((await page.textContent("#holdLabel")) === "Strg+J", "Abgelehnte Taste ändert nichts");
+await page.click("#holdCapture");
+await page.click("#btnSaveAs");
+check(!(await page.textContent("#holdCapture")).includes("Taste drücken"), "Klick woanders beendet das Festlegen");
+await page.keyboard.type("ab");
+check((await page.inputValue("#saveAsName")) === "ab", "Tippen landet im Namensfeld, nicht als Spul-Taste");
+await page.click("#saveAsCancel");
+
 const statusFor = async (override) => {
   await page.evaluate((o) => (globalThis.__levelOverride = o), override);
   await page.waitForTimeout(250);

@@ -12,6 +12,20 @@ customElements.define(
   },
 );
 
+// Eingabefeld in einem geschlossenen Shadow DOM (die Spul-Taste darf dort nicht greifen)
+customElements.define(
+  "shadow-input",
+  class extends HTMLElement {
+    constructor() {
+      super();
+      const root = this.attachShadow({ mode: "closed" });
+      this.input = document.createElement("input");
+      root.append(this.input);
+    }
+  },
+);
+window.__shadowInput = () => document.getElementById("sinput").input;
+
 window.__players = {
   dom: () => document.getElementById("dom"),
   shadow: () => document.getElementById("shadow").audio,
