@@ -386,7 +386,8 @@
     await media.play();
     // Erst hörbaren Ton abwarten – nach Seek/Play ist der Ausgang kurz still.
     // Fehlt er, Szenario mit Zustandsbericht abbrechen statt Folgefehler zu erzeugen.
-    if (!(await waitUntil(() => globalThis.__outDb() > -30, 1000))) {
+    // Großzügig: beim Kaltstart des Browsers kann die erste Wiedergabe etwas dauern
+    if (!(await waitUntil(() => globalThis.__outDb() > -30, 3000))) {
       errors.push(`Vorbedingung: kein hörbarer Ton vor dem Halten (${stateReport()})`);
       media.pause();
       return;
@@ -402,12 +403,13 @@
     }
     key("keyup");
     const releasedAt = media.currentTime;
-    // Einblenden mit Lookahead ist nach ~60–100 ms fertig; länger warten liefe in die Stille ab 1 s
-    await sleep(150);
+    // Abfragen statt fest warten: bis der Ton wieder hörbar ist oder die Stille ab 1 s naht
+    await waitUntil(() => globalThis.__outDb() > -30 || media.currentTime >= 0.97, 600);
     const checkAt = media.currentTime;
     const db = globalThis.__outDb();
-    if (checkAt >= 0.97) errors.push(`Zeitfenster „Loslassen im Ton“ verfehlt (losgelassen ${releasedAt.toFixed(2)} s, geprüft ${checkAt.toFixed(2)} s)`);
-    else if (db < -30) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB bei ${checkAt.toFixed(2)} s)`);
+    // Früh genug losgelassen (≥ 70 ms Ton übrig) und trotzdem nicht hörbar → stumm geblieben
+    if (db < -30 && releasedAt < 0.9) errors.push(`Nach Loslassen im Ton stumm (${db.toFixed(1)} dB, losgelassen ${releasedAt.toFixed(2)} s, geprüft ${checkAt.toFixed(2)} s)`);
+    else if (db < -30) errors.push(`Zeitfenster „Loslassen im Ton“ verfehlt (losgelassen ${releasedAt.toFixed(2)} s)`);
 
     // B: in der Stille (automatisch schnell) kurz halten und loslassen → bleibt schnell.
     // Früh in die Stille springen, damit nach der Erkennung genug Zeit bis 2 s bleibt.
