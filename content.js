@@ -37,6 +37,7 @@
   const LINEAR = [0, 0, 1, 1];
 
   let state = { enabled: false, values: SS.clampValues(), rev: -1 };
+  let holdActive = false; // Spul-Taste gerade gehalten (in irgendeinem Frame des Tabs)
   const controllers = new Map(); // HTMLMediaElement → MediaController
   const known = new Set(); // gesehene Medienelemente (wird regelmäßig aufgeräumt)
   const directlyWatched = new WeakSet();
@@ -178,6 +179,7 @@
       this.ramp = null;
       this.lastSample = null;
       this.zeroMs = 0;
+      this.holding = false; // Spul-Taste wirkt gerade auf dieses Element
       this.foreign = false; // angehängt, aber Quelle inzwischen fremd → Kette liefert nur Nullen
       watchRate(el);
     }
@@ -263,7 +265,8 @@
       const v = this.values;
       // measurable(): ein stummes Element nie beschleunigen. onRms setzt es zusätzlich beim
       // nächsten Messwert zurück – diese Prüfung verhindert, dass überhaupt ein Übergang startet.
-      const silent = this.detector.phase === "silence" && this.mediaState === "playing" && this.measurable();
+      const silent =
+        (this.holding || (this.detector.phase === "silence" && this.measurable())) && this.mediaState === "playing";
       const phaseRamp = silent ? v.rampIn : v.rampOut;
       const targetRate = silent ? v.silenceSpeed : v.normalSpeed;
       const targetGain = silent && v.muteSilence ? 0 : 1;
@@ -303,8 +306,29 @@
       if (this.mediaState !== "playing") this.resetOutput();
     }
 
+    /** Spul-Taste: solange gehalten, gilt die Stelle als Stille (gleiche Kurven, ggf. stumm). */
+    applyHold() {
+      if (!this.connected) return;
+      const v = this.values;
+      if (holdActive && this.mediaState === "playing") {
+        if (this.holding) return;
+        this.holding = true;
+        this.startRamp(v.silenceSpeed, v.rampIn);
+        if (v.muteSilence) this.setGain(0, v.rampIn.durationMs / 1000, v.rampIn.bezier);
+      } else if (this.holding) {
+        this.holding = false;
+        // Loslassen: zurück zu dem, was die automatische Erkennung gerade sagt
+        const silent = this.detector.phase === "silence" && this.mediaState === "playing" && this.measurable();
+        if (!silent) {
+          this.startRamp(v.normalSpeed, v.rampOut);
+          if (this.gainTarget !== 1) this.setGain(1, v.rampOut.durationMs / 1000, v.rampOut.bezier);
+        }
+      }
+    }
+
     resetOutput() {
       this.ramp = null;
+      this.holding = false; // bei erneutem Play greift die noch gehaltene Taste wieder
       if (this.connected) {
         this.setRate(this.values.normalSpeed);
         this.setGain(1, 0);
@@ -322,9 +346,15 @@
       const mediaState = playing && !hearable ? "muted" : this.mediaState;
       const res = this.detector.update({ windowMs, levelDb, mediaState });
 
-      if (playing && !hearable) {
+      this.applyHold();
+      if (this.holding) {
+        // Spul-Taste: Stille erzwungen, die automatische Erkennung läuft nur im Hintergrund mit
+        this.advanceRamp(windowMs);
+        const rate = this.ownRate === RATE_ONE ? 1 : this.ownRate;
+        pendingSavedMs += windowMs * Math.max(0, rate / v.normalSpeed - 1);
+      } else if (playing && !hearable) {
         // Ton ohne Ereignis verloren (z. B. Tonspur weg): laufende Beschleunigung beenden
-        if (this.ramp || Math.abs(this.ownRate - v.normalSpeed) > 1e-4 || this.gainTarget !== 1) this.resetOutput();
+        if (this.ramp || Math.abs(this.ownRate - v.normalSpeed) > 1e-3 || this.gainTarget !== 1) this.resetOutput();
       } else {
         if (res.changed) this.onPhase(res);
         this.advanceRamp(windowMs);
@@ -338,7 +368,7 @@
       else if (playing) this.zeroMs = rms === 0 ? this.zeroMs + windowMs : 0;
       this.lastSample = {
         ...res,
-        phase: hearable ? res.phase : "sound",
+        phase: this.holding ? "silence" : hearable ? res.phase : "sound",
         playing,
         foreign: this.foreign,
         muted: !audible(this.el),
@@ -685,18 +715,76 @@
     if (!next || typeof next.rev !== "number" || next.rev < state.rev) return;
     const wasEnabled = state.enabled;
     state = { enabled: !!next.enabled, values: SS.clampValues(next.values), rev: next.rev };
+    if (!state.values.holdKey.enabled) releaseKey();
 
     if (state.enabled && !wasEnabled) {
       ensureMaintenance();
       nextShadowScan = performance.now() + SHADOW_SCAN_MIN_MS;
       startPlaying();
     } else if (!state.enabled && wasEnabled) {
+      releaseKey();
       for (const ctrl of controllers.values()) ctrl.stop();
       flushSaved();
     } else if (state.enabled) {
       for (const ctrl of controllers.values()) ctrl.refresh();
     }
   }
+
+  // ---------- Spul-Taste ----------
+
+  function setHold(on) {
+    holdActive = on;
+    for (const ctrl of controllers.values()) ctrl.applyHold();
+  }
+
+  let keyHeld = false; // Taste in diesem Frame gedrückt
+
+  function announceHold(on) {
+    setHold(on);
+    // Alle anderen Frames des Tabs mitnehmen (Video im iframe, Fokus in der Seite)
+    browser.runtime.sendMessage({ type: "hold", on }).catch(() => {});
+  }
+
+  function releaseKey() {
+    if (!keyHeld) return;
+    keyHeld = false;
+    announceHold(false);
+  }
+
+  function isEditable(e) {
+    const t = e.composedPath?.()[0] ?? e.target;
+    return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName ?? ""));
+  }
+
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (!state.enabled || !SS.matchesHoldKey(state.values.holdKey, e) || isEditable(e)) return;
+      // Die Seite soll die Taste nicht zusätzlich verarbeiten (z. B. eigene Kürzel)
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (keyHeld) return; // Tastenwiederholung
+      keyHeld = true;
+      announceHold(true);
+    },
+    true,
+  );
+  window.addEventListener(
+    "keyup",
+    (e) => {
+      // Beim Loslassen zählt nur die Taste – Modifier dürfen schon vorher losgelassen sein
+      if (!keyHeld || e.code !== state.values.holdKey.code) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      releaseKey();
+    },
+    true,
+  );
+  // Fokus weg (anderes Fenster, anderer Tab): Loslassen käme hier nie an
+  window.addEventListener("blur", releaseKey);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) releaseKey();
+  });
 
   function levelInfo() {
     prune();
@@ -729,6 +817,7 @@
   browser.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return undefined;
     if (msg.type === "applyState") applyState(msg.state);
+    else if (msg.type === "hold") setHold(!!msg.on);
     else if (msg.type === "getLevel") return Promise.resolve(levelInfo());
     return undefined;
   });

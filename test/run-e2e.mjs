@@ -88,6 +88,34 @@ for (const name of PLAYERS) {
   if (!ok) errors.push(`${name}: Stille nicht beschleunigt oder Ton nicht normal`);
 }
 
+// Spul-Taste mit echtem Tastendruck: einschalten über die Popup-Seite, im Ton halten
+await popup(`async () => {
+  const st = await browser.runtime.sendMessage({ type: "getPopupState", tabId: ${testTabId} });
+  const values = { ...st.tab.values, holdKey: { enabled: true, code: "KeyH" } };
+  await browser.runtime.sendMessage({ type: "setValues", tabId: ${testTabId}, values });
+  return true;
+}`);
+await page.waitForTimeout(200);
+await page.evaluate(async () => {
+  const el = window.__players.dom();
+  el.currentTime = 0;
+  await el.play();
+});
+await page.waitForFunction(() => window.__players.dom().currentTime >= 0.15);
+await page.keyboard.down("h");
+const heldFast = await page
+  .waitForFunction(() => window.__players.dom().playbackRate > 2, null, { timeout: 1500 })
+  .then(() => true, () => false);
+const heldAt = await page.evaluate(() => window.__players.dom().currentTime);
+await page.keyboard.up("h");
+const released = await page
+  .waitForFunction(() => Math.abs(window.__players.dom().playbackRate - 1) < 0.001, null, { timeout: 1000 })
+  .then(() => true, () => false);
+await page.evaluate(() => window.__players.dom().pause());
+console.log(`${heldFast && released ? "✔" : "✖"} Spul-Taste: halten ${heldFast ? "schnell" : "nicht schnell"} (bei ${heldAt.toFixed(2)} s), loslassen ${released ? "normal" : "nicht normal"}`);
+if (!heldFast || !released) errors.push("Spul-Taste wirkt mit echter Extension nicht");
+if (heldAt >= 1) errors.push("Spul-Taste erst in der Stille geprüft – Test ohne Aussage");
+
 const level = await popup(`async () => browser.tabs.sendMessage(${testTabId}, { type: "getLevel" }, { frameId: 0 })`);
 console.log(`getLevel: ${JSON.stringify(level)}`);
 // DOM + Shadow DOM bleiben bekannt; das pausierte new Audio() (nicht im DOM) wird aufgeräumt

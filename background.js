@@ -109,6 +109,11 @@
       }
       return { ok: true };
     },
+    async hold(msg, tabId) {
+      // Spul-Taste an alle Frames des Tabs weitergeben (auch iframes ohne Fokus)
+      browser.tabs.sendMessage(tabId, { type: "hold", on: !!msg.on }).catch(() => {});
+      return { ok: true };
+    },
     async addSaved(msg, tabId) {
       const s = Number(msg.seconds);
       if (!Number.isFinite(s) || s <= 0) return { ok: true };

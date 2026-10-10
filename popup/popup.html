@@ -57,6 +57,20 @@
 
     <section id="sliders" class="controls"></section>
 
+    <section class="holdkey">
+      <label class="switch-row">
+        <input type="checkbox" id="holdEnabled" />
+        <span class="switch" aria-hidden="true"></span>
+        <span>Spul-Taste (halten = Stille)</span>
+      </label>
+      <div class="row">
+        <span class="muted">Taste:</span>
+        <kbd id="holdLabel">keine</kbd>
+        <button id="holdCapture">Taste festlegen</button>
+      </div>
+      <p class="muted small">Solange gehalten: Stille-Geschwindigkeit. Wirkt, wenn die Webseite den Fokus hat, nicht in Eingabefeldern.</p>
+    </section>
+
     <section class="ramps">
       <div class="ramp" id="rampIn">
         <h3>Übergang „Stille an“</h3>

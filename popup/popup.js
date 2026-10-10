@@ -12,6 +12,7 @@
     "last-mode": "Der letzte Modus kann nicht gelöscht werden.",
     "unknown-mode": "Modus nicht gefunden.",
     "no-mode": "Kein Modus geladen.",
+    "bad-key": "Diese Taste lässt sich nicht verwenden.",
   };
 
   const $ = (id) => document.getElementById(id);
@@ -171,6 +172,59 @@
     return "custom";
   }
 
+  // ---------- Spul-Taste ----------
+
+  let capturing = false;
+
+  function stopCapture() {
+    capturing = false;
+    $("holdCapture").classList.remove("listening");
+    $("holdCapture").textContent = "Taste festlegen";
+  }
+
+  function startCapture() {
+    capturing = true;
+    $("holdCapture").classList.add("listening");
+    $("holdCapture").textContent = "Taste drücken … (Esc = Abbrechen)";
+  }
+
+  function onCaptureKey(e) {
+    if (!capturing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.code === "Escape") return stopCapture();
+    // Auf die eigentliche Taste warten – Strg/Alt/Shift allein zählen nicht
+    if (/^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/.test(e.code)) return;
+    const hk = SS.clampValues({
+      holdKey: { enabled: true, code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey },
+    }).holdKey;
+    stopCapture();
+    if (!hk.code) return showError({ code: "bad-key" });
+    values.holdKey = hk;
+    values = SS.clampValues(values);
+    render();
+    scheduleSend();
+  }
+
+  function buildHoldKey() {
+    $("holdCapture").addEventListener("click", () => (capturing ? stopCapture() : startCapture()));
+    window.addEventListener("keydown", onCaptureKey, true);
+    $("holdEnabled").addEventListener("change", (e) => {
+      // Ohne festgelegte Taste erst eine Taste abfragen
+      if (e.target.checked && !values.holdKey.code) {
+        e.target.checked = false;
+        startCapture();
+        return;
+      }
+      setValue(["holdKey", "enabled"], e.target.checked);
+    });
+  }
+
+  function renderHoldKey() {
+    $("holdEnabled").checked = values.holdKey.enabled;
+    $("holdLabel").textContent = SS.holdKeyLabel(values.holdKey);
+  }
+
   function buildRamps() {
     for (const r of RAMPS) {
       const box = $(r.el);
@@ -280,6 +334,7 @@
       }
     }
 
+    renderHoldKey();
     renderModes();
   }
 
@@ -443,6 +498,7 @@
 
   async function init() {
     buildSliders();
+    buildHoldKey();
     buildRamps();
     wireEvents();
     const [active] = await browser.tabs.query({ active: true, currentWindow: true });

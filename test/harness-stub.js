@@ -17,6 +17,7 @@
     mixed: { muteSilence: false },
     stale: { muteSilence: false },
     toggle: { muteSilence: false },
+    hold: { muteSilence: false, holdKey: { enabled: true, code: "KeyH" } },
   };
   const scenario = new URLSearchParams(location.search).get("s") || "rate";
   const listeners = [];
@@ -37,6 +38,8 @@
       sendMessage: async (msg) => {
         globalThis.__harnessMessages.push(msg);
         if (msg.type === "getTabState") return { enabled: true, rev: 0, values: globalThis.__values() };
+        // Wie der Background: Spul-Taste an alle Frames (hier: an dieses) weitergeben
+        if (msg.type === "hold") listeners.forEach((fn) => fn({ type: "hold", on: msg.on }, {}));
         return { ok: true };
       },
     },

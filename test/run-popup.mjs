@@ -139,6 +139,23 @@ check(optionTexts.includes("Standard ★"), "Standard ist wieder Standard-Modus"
 await page.waitForTimeout(300);
 check((await page.textContent("#meterStatus")) === "Ton", "Pegelanzeige zeigt Ton");
 
+// Spul-Taste festlegen: Klick, Taste drücken; Esc bricht ab; Schalter aus
+await page.click("#holdCapture");
+await page.keyboard.press("Escape");
+await settle();
+check((await page.textContent("#holdLabel")) === "keine", "Esc bricht das Festlegen ab");
+await page.click("#holdEnabled + .switch");
+check((await page.textContent("#holdCapture")).includes("Taste drücken"), "Einschalten ohne Taste fragt die Taste ab");
+await page.keyboard.press("Control+j");
+await settle();
+let hk = (await lastApply())?.values.holdKey;
+check(hk?.enabled === true && hk.code === "KeyJ" && hk.ctrl === true, `Spul-Taste Strg+J gespeichert (${JSON.stringify(hk)})`);
+check((await page.textContent("#holdLabel")) === "Strg+J", "Anzeige Strg+J");
+await page.click("#holdEnabled + .switch");
+await settle();
+hk = (await lastApply())?.values.holdKey;
+check(hk?.enabled === false && hk.code === "KeyJ", "Ausschalten behält die Taste");
+
 const statusFor = async (override) => {
   await page.evaluate((o) => (globalThis.__levelOverride = o), override);
   await page.waitForTimeout(250);

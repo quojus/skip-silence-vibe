@@ -281,6 +281,43 @@
     if (loud.length) errors.push(`Alter Ton nach Einschalten: ${loud.map((s) => `${s.t.toFixed(2)} s ${s.db.toFixed(1)} dB`).join(", ")}`);
   }
 
+  // Spul-Taste: halten = Stille-Geschwindigkeit, loslassen = normal. Nicht in Eingabefeldern,
+  // nicht mit falschen Modifiern, Loslassen auch bei Fokusverlust.
+  async function hold(errors) {
+    const key = (type, o = {}, target = document.body) => {
+      const e = new KeyboardEvent(type, { code: "KeyH", key: "h", bubbles: true, cancelable: true, ...o });
+      target.dispatchEvent(e);
+      return e;
+    };
+    await media.play();
+    await waitUntil(() => media.currentTime >= 0.2, 2000);
+    const down = key("keydown");
+    if (!down.defaultPrevented) errors.push("Seite bekommt die Spul-Taste trotzdem");
+    if (!(await waitUntil(() => media.playbackRate > 2, 600))) errors.push(`Halten im Ton nicht beschleunigt (${media.playbackRate}x)`);
+    key("keydown", { repeat: true });
+    key("keyup");
+    if (!(await waitUntil(() => isNormal(media.playbackRate), 400))) errors.push(`Loslassen nicht normal (${media.playbackRate}x)`);
+
+    key("keydown", { shiftKey: true });
+    await sleep(300);
+    if (!isNormal(media.playbackRate)) errors.push("Taste mit Shift löst trotzdem aus");
+    key("keyup", { shiftKey: true });
+
+    const input = document.createElement("input");
+    document.body.append(input);
+    key("keydown", {}, input);
+    await sleep(300);
+    if (!isNormal(media.playbackRate)) errors.push("Taste im Eingabefeld löst aus");
+    key("keyup", {}, input);
+    input.remove();
+
+    key("keydown");
+    if (!(await waitUntil(() => media.playbackRate > 2, 600))) errors.push("Zweites Halten nicht beschleunigt");
+    window.dispatchEvent(new Event("blur"));
+    if (!(await waitUntil(() => isNormal(media.playbackRate), 400))) errors.push("Fokusverlust lässt die Taste nicht los");
+    media.pause();
+  }
+
   // Stummschalten mitten in der Stille, danach Regler ändern: bleibt normal schnell.
   // Prüft das Verhalten von außen. Doppelt abgesichert: refresh() startet keinen Übergang,
   // und onRms setzt ein stummes Element beim nächsten Messwert ohnehin zurück – fällt eine
@@ -339,6 +376,7 @@
     mixed,
     stale,
     toggle,
+    hold,
   };
 
   document.getElementById("start").addEventListener("click", async () => {

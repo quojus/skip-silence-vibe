@@ -23,6 +23,7 @@ Skip Silence Vibe ist ein Nachbau mit eigenen Erweiterungen, vor allem Einstellu
 - **Hysterese:** Stille endet erst, wenn der Pegel um diesen Wert über dem Schwellwert liegt. So springt der Zustand an der Grenze nicht hin und her.
 - **Stille stummschalten** mit optionalem **Lookahead:** Der Ton wird um 60 ms verzögert, damit das Einblenden vor der ersten Silbe fertig ist.
 - **Pegelanzeige** mit Schwellwert-Linie (gelb) und Hysterese-Linie (dünn) sowie die **gesparte Zeit** pro Tab.
+- **Spul-Taste (optional):** Solange du eine selbst gewählte Taste hältst, gilt die Stelle als Stille: Stille-Geschwindigkeit, mit Übergangskurven und ggf. stumm. Loslassen gibt die Kontrolle an die automatische Erkennung zurück. Im Popup unter „Spul-Taste“ einschalten und mit „Taste festlegen“ eine Taste wählen, auch mit Strg/Alt/Shift. Wirkt, wenn die Webseite den Fokus hat, nicht beim Tippen in Eingabefeldern; die Seite selbst bekommt die Taste nicht.
 - **Tastenkürzel** `Alt+Shift+S` schaltet den aktuellen Tab an oder aus. Änderbar unter `about:addons` → Zahnrad → *Tastenkombinationen für Erweiterungen verwalten*.
 
 ## Installation

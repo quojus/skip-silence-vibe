@@ -17,6 +17,30 @@ test("betterSample: spielend, dann messbar, dann lauter", () => {
   assert.equal(SS.betterSample({ ...base, levelDb: -30 }, { ...base, levelDb: -20 }), false);
 });
 
+test("Spul-Taste: Standard aus, Validierung, Anzeige", () => {
+  assert.deepEqual(SS.clampValues({}).holdKey, { enabled: false, code: "", ctrl: false, alt: false, shift: false, meta: false });
+  const ok = SS.clampValues({ holdKey: { enabled: true, code: "Period", shift: true } }).holdKey;
+  assert.equal(ok.enabled, true);
+  assert.equal(ok.shift, true);
+  assert.equal(SS.holdKeyLabel(ok), "Shift+.");
+  assert.equal(SS.holdKeyLabel({ code: "KeyF", ctrl: true, alt: false, shift: false, meta: false }), "Strg+F");
+  // ungültiger Code oder reine Modifier-Taste → keine Taste, aus
+  for (const code of ["<script>", "ShiftLeft", "Control", "", 5]) {
+    const hk = SS.clampValues({ holdKey: { enabled: true, code } }).holdKey;
+    assert.equal(hk.enabled, false, String(code));
+    assert.equal(hk.code, "", String(code));
+  }
+});
+
+test("Spul-Taste: Ereignis passt nur mit exakten Modifiern", () => {
+  const hk = SS.clampValues({ holdKey: { enabled: true, code: "KeyF", ctrl: true } }).holdKey;
+  const ev = (o) => ({ code: "KeyF", ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...o });
+  assert.equal(SS.matchesHoldKey(hk, ev({ ctrlKey: true })), true);
+  assert.equal(SS.matchesHoldKey(hk, ev({})), false);
+  assert.equal(SS.matchesHoldKey(hk, ev({ ctrlKey: true, shiftKey: true })), false);
+  assert.equal(SS.matchesHoldKey({ ...hk, enabled: false }, ev({ ctrlKey: true })), false);
+});
+
 test("Ergebnis ist eine unabhängige Kopie", () => {
   const v = SS.clampValues({});
   v.rampIn.bezier[0] = 0.9;

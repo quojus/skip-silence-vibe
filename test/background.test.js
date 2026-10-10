@@ -165,6 +165,19 @@ test("Neuer Tab startet mit neuem Standard-Modus, ausgeschaltet", async () => {
   assert.equal(s.values.normalSpeed, 1.75);
 });
 
+test("Spul-Taste wird an alle Frames des Tabs weitergegeben", async () => {
+  sent.length = 0;
+  await send({ type: "hold", on: true }, content(1, 5));
+  await send({ type: "hold", on: false }, content(1, 5));
+  assert.deepEqual(
+    sent.map((m) => [m.tabId, m.msg.type, m.msg.on]),
+    [
+      [1, "hold", true],
+      [1, "hold", false],
+    ],
+  );
+});
+
 test("Tastenkürzel schaltet den aktiven Tab um", async () => {
   activeTabId = 4;
   browser.commands.onCommand.fire("toggle-tab");
