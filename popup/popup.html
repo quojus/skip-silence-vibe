@@ -7,12 +7,13 @@
   </head>
   <body>
     <header>
-      <label class="switch-row">
-        <input type="checkbox" id="enabled" />
-        <span class="switch" aria-hidden="true"></span>
-        <span class="title">An in diesem Tab</span>
-      </label>
-      <span id="saved" class="muted"></span>
+      <div class="quick" id="quick" role="group" aria-label="Modus für diesen Tab">
+        <button id="btnOff" class="off" title="In diesem Tab ausschalten (Alt+Shift+S schaltet um)">Aus</button>
+      </div>
+      <div id="excludedNote" class="note hidden">
+        <span id="excludedText"></span>
+        <button id="btnInclude">Zulassen</button>
+      </div>
     </header>
 
     <section class="meter-box">
@@ -29,7 +30,7 @@
 
     <section class="modes">
       <div class="row">
-        <select id="mode" aria-label="Modus"></select>
+        <select id="mode" aria-label="Alle Modi"></select>
         <span id="modeStatus" class="badge"></span>
       </div>
       <div class="row buttons">
@@ -81,9 +82,37 @@
       <p class="muted small">Punkte ziehen · Pfeiltasten verschieben (Shift = grob) · Tasten 1/2 wählen den Punkt</p>
     </section>
 
+    <section class="sites">
+      <h3>Ausgeschlossene Seiten</h3>
+      <p class="muted small">Hier läuft nichts, auch wenn ein Modus an ist. Gilt mit allen Subdomains.</p>
+      <ul id="siteList"></ul>
+      <form class="row" id="siteForm">
+        <input type="text" id="siteInput" placeholder="z. B. zoom.us" maxlength="300" aria-label="Domain" />
+        <button type="submit">Hinzufügen</button>
+      </form>
+      <div class="row">
+        <button id="btnExcludeHere" class="hidden"></button>
+      </div>
+    </section>
+
+    <footer>
+      <button id="btnStats" class="link" aria-expanded="false">Statistik</button>
+    </footer>
+    <section id="statsBox" class="stats hidden">
+      <table>
+        <thead>
+          <tr><th></th><th>Tab</th><th>Gesamt</th></tr>
+        </thead>
+        <tbody id="statsBody"></tbody>
+      </table>
+      <p class="muted small" id="statsSince"></p>
+    </section>
+
     <script src="../lib/defaults.js"></script>
     <script src="../lib/bezier.js"></script>
     <script src="../lib/modes.js"></script>
+    <script src="../lib/sites.js"></script>
+    <script src="../lib/stats.js"></script>
     <script src="curve-editor.js"></script>
     <script src="popup.js"></script>
   </body>

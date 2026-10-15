@@ -51,10 +51,102 @@ h3 {
   display: none !important;
 }
 
-header {
+.quick {
+  display: flex;
+  gap: 4px;
+}
+
+.quick button {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 6px 6px;
+  font-weight: 600;
+}
+
+.quick button.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #15161a;
+}
+
+.quick button.off {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
+.quick button.off.active {
+  background: var(--border);
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+.note {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--yellow);
+  border-radius: 6px;
+  color: var(--yellow);
+  font-size: 12px;
+}
+
+#siteList {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+#siteList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+#siteList li button {
+  padding: 0 7px;
+}
+
+footer {
+  margin-top: 10px;
+  text-align: center;
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  text-decoration: underline;
+  font-size: 12px;
+}
+
+.stats table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats th,
+.stats td {
+  padding: 3px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.stats th:first-child,
+.stats td:first-child {
+  text-align: left;
+  color: var(--muted);
+}
+
+.stats tr.sum td {
+  border-top: 1px solid var(--border);
+  font-weight: 600;
 }
 
 .switch-row {
@@ -104,11 +196,6 @@ header {
 
 .switch-row input:disabled ~ * {
   opacity: 0.45;
-}
-
-.title {
-  font-weight: 600;
-  font-size: 14px;
 }
 
 .meter {

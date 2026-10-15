@@ -20,8 +20,17 @@
   }
   const listeners = [];
   const noopEvent = { addListener() {} };
+  // Nachricht wie von einem Content-Script im Tab 1 schicken (z. B. Statistik)
+  globalThis.__contentSend = async (msg) => {
+    for (const fn of listeners) {
+      const r = fn(structuredClone(msg), { tab: { id: 1, url: globalThis.__tabUrl }, frameId: 0, url: globalThis.__tabUrl });
+      if (r !== undefined) return structuredClone(await r);
+    }
+    return undefined;
+  };
   globalThis.__sent = [];
   globalThis.__levelOverride = {}; // Tests setzen hier z. B. { foreign: true }
+  globalThis.__tabUrl = "https://www.example.org/video";
   globalThis.browser = {
     storage: { local: area(), session: area() },
     runtime: {
@@ -37,6 +46,7 @@
     },
     tabs: {
       query: async () => [{ id: 1 }],
+      get: async (id) => ({ id, url: globalThis.__tabUrl }),
       sendMessage: async (tabId, msg) => {
         globalThis.__sent.push(structuredClone(msg));
         if (msg.type === "getLevel") {

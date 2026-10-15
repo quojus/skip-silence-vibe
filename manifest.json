@@ -27,6 +27,8 @@
     "scripts": [
       "lib/defaults.js",
       "lib/modes.js",
+      "lib/sites.js",
+      "lib/stats.js",
       "background.js"
     ]
   },
@@ -42,6 +44,7 @@
         "lib/defaults.js",
         "lib/bezier.js",
         "lib/detector.js",
+        "lib/sites.js",
         "content.js"
       ]
     }

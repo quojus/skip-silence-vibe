@@ -31,6 +31,7 @@ const sent = [];
 const badges = {};
 const registered = []; // onMessage-Listener von background.js
 let activeTabId = 7;
+const tabUrls = {}; // tabId → URL der Seite (Standard: example.org)
 const browser = {
   storage: { local: area(), session: area() },
   runtime: {
@@ -42,6 +43,7 @@ const browser = {
       sent.push({ tabId, msg: structuredClone(msg) });
     },
     query: async () => [{ id: activeTabId }],
+    get: async (id) => ({ id, url: tabUrls[id] ?? "https://example.org/" }),
     onRemoved: events(),
     onUpdated: events(),
   },
@@ -56,11 +58,17 @@ const browser = {
 globalThis.browser = browser;
 require("../lib/defaults.js");
 require("../lib/modes.js");
+require("../lib/sites.js");
+require("../lib/stats.js");
 require("../background.js");
 const SS = globalThis.SS;
 
 const POPUP = { url: "moz-extension://abc/popup/popup.html" };
-const content = (tabId, frameId = 0) => ({ tab: { id: tabId }, frameId, url: "https://example.org/" });
+const content = (tabId, frameId = 0, url = "https://example.org/") => ({
+  tab: { id: tabId, url: tabUrls[tabId] ?? "https://example.org/" },
+  frameId,
+  url,
+});
 const send = async (msg, sender) => await registered[0](msg, sender);
 const popup = (msg) => send(msg, POPUP);
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -115,17 +123,21 @@ test("setValues prüft Werte und hält die Reihenfolge ein", async () => {
   );
 });
 
-test("registerFrame, addSaved und dropFrames", async () => {
+test("registerFrame, addStats und dropFrames", async () => {
   await send({ type: "registerFrame" }, content(1, 5));
   await send({ type: "registerFrame" }, content(1, 5));
   await send({ type: "registerFrame" }, content(1, 9));
-  await send({ type: "addSaved", seconds: 2.5 }, content(1));
-  await send({ type: "addSaved", seconds: -4 }, content(1));
-  await send({ type: "addSaved", seconds: "x" }, content(1));
-  await send({ type: "addSaved", seconds: 1e9 }, content(1));
+  const delta = { normalRealS: 10, normalMediaS: 15, silenceRealS: 2, silenceMediaS: 6, silences: 1 };
+  await send({ type: "addStats", stats: delta }, content(1));
+  await send({ type: "addStats", stats: { normalRealS: -4, silences: "x" } }, content(1));
+  await send({ type: "addStats", stats: { silenceRealS: 1e9 } }, content(1));
+  await send({ type: "addStats", stats: delta }, content(2));
   let st = await popup({ type: "getPopupState", tabId: 1 });
   assert.deepEqual(st.tab.frames, [5, 9]);
-  assert.equal(st.tab.savedSeconds, 2.5 + 3600);
+  assert.deepEqual(st.tab.stats, { ...delta, silenceRealS: 2 + 3600 });
+  assert.deepEqual(st.totalStats, { ...delta, normalRealS: 20, normalMediaS: 30, silenceRealS: 4 + 3600, silenceMediaS: 12, silences: 2 });
+  assert.deepEqual(browser.storage.local.dump().stats, st.totalStats, "Insgesamt wird dauerhaft gespeichert");
+  assert.ok(st.statsSince > 0);
   await popup({ type: "dropFrames", tabId: 1, frameIds: [5, 0] });
   st = await popup({ type: "getPopupState", tabId: 1 });
   assert.deepEqual(st.tab.frames, [9]);
@@ -163,6 +175,63 @@ test("Neuer Tab startet mit neuem Standard-Modus, ausgeschaltet", async () => {
   const s = await send({ type: "getTabState" }, content(3));
   assert.equal(s.enabled, false);
   assert.equal(s.values.normalSpeed, 1.75);
+});
+
+test("Schnellwahl: Modus einschalten, angepasste Werte bleiben beim selben Modus", async () => {
+  const base = await popup({ type: "getPopupState", tabId: 10 });
+  const r = await popup({ type: "saveModeAs", tabId: 10, name: "Vortrag" });
+  const vortrag = r.tab.modeId;
+  assert.ok(r.quickModeIds.includes(vortrag), "Neuer Modus steht in der Schnellwahl");
+
+  sent.length = 0;
+  let res = await popup({ type: "activateMode", tabId: 10, modeId: base.defaultModeId });
+  assert.equal(res.tab.enabled, true);
+  assert.equal(res.tab.modeId, base.defaultModeId);
+  assert.equal(sent.at(-1).msg.state.enabled, true);
+
+  await popup({ type: "setValues", tabId: 10, values: { ...res.tab.values, silenceSpeed: 7 } });
+  res = await popup({ type: "activateMode", tabId: 10, modeId: base.defaultModeId });
+  assert.equal(res.tab.values.silenceSpeed, 7, "Gleicher Modus: Anpassung bleibt");
+  res = await popup({ type: "activateMode", tabId: 10, modeId: vortrag });
+  assert.equal(res.tab.modeId, vortrag);
+  assert.equal(res.tab.values.silenceSpeed, SS.DEFAULT_VALUES.silenceSpeed, "Anderer Modus: dessen Werte");
+
+  res = await popup({ type: "setEnabled", tabId: 10, enabled: false });
+  assert.equal(res.tab.enabled, false);
+  assert.deepEqual(await popup({ type: "activateMode", tabId: 10, modeId: "weg" }), { ok: false, error: "unknown-mode" });
+});
+
+test("Ausgeschlossene Seiten: Tab und Frames bekommen den Ausschluss mit", async () => {
+  tabUrls[11] = "https://us02web.zoom.us/j/1";
+  await popup({ type: "activateMode", tabId: 11, modeId: (await popup({ type: "getPopupState", tabId: 11 })).defaultModeId });
+  let st = await popup({ type: "getPopupState", tabId: 11 });
+  assert.equal(st.host, "us02web.zoom.us");
+  assert.equal(st.excluded, false);
+
+  sent.length = 0;
+  st = await popup({ type: "excludeHost", tabId: 11, host: "https://www.Zoom.us/" });
+  assert.deepEqual(st.excludedHosts, ["zoom.us"]);
+  assert.equal(st.excluded, true);
+  assert.equal(st.tab.enabled, true, "Der Tab bleibt an – die Seite ist nur ausgeschlossen");
+  const push = sent.find((m) => m.tabId === 11 && m.msg.type === "applyState");
+  assert.equal(push.msg.state.topExcluded, true);
+  assert.deepEqual(push.msg.state.excludedHosts, ["zoom.us"]);
+  assert.ok(sent.some((m) => m.tabId === 1 && m.msg.type === "applyState" && !m.msg.state.topExcluded), "Andere Tabs bekommen die Liste");
+  await flush();
+  assert.equal(badges[11], "", "Kein ON-Badge auf ausgeschlossener Seite");
+
+  // Content-Script: Hauptframe mit eigener URL, iframe über die Tab-URL
+  let cs = await send({ type: "getTabState" }, content(11, 0, "https://zoom.us/"));
+  assert.equal(cs.topExcluded, true);
+  cs = await send({ type: "getTabState" }, content(1, 3, "https://zoom.us/embed"));
+  assert.equal(cs.topExcluded, false, "Fremdes iframe: der Frame prüft seine Domain selbst");
+  assert.deepEqual(cs.excludedHosts, ["zoom.us"]);
+
+  assert.deepEqual(await popup({ type: "excludeHost", tabId: 11, host: "kein host" }), { ok: false, error: "bad-host" });
+  st = await popup({ type: "includeHost", tabId: 11, host: "zoom.us" });
+  assert.deepEqual(st.excludedHosts, []);
+  assert.equal(st.excluded, false);
+  assert.deepEqual(browser.storage.local.dump().excludedHosts, []);
 });
 
 test("Spul-Taste wird an alle Frames des Tabs weitergegeben", async () => {

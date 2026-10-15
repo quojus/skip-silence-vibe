@@ -16,15 +16,18 @@ Skip Silence Vibe ist ein Nachbau mit eigenen Erweiterungen, vor allem Einstellu
 ## Funktionen
 
 - **Pro Tab:** Jeder Tab hat eigene Werte. Ein neuer Tab startet mit dem Standard-Modus und ist ausgeschaltet. Navigierst du im selben Tab weiter, bleiben die Werte erhalten.
+- **Schnellwahl:** Oben im Popup stehen die 4 zuletzt benutzten Modi als Buttons, ganz rechts *Aus*. Ein Klick schaltet den Tab mit diesem Modus ein. Die Buttons bleiben an ihrem Platz: Ein neu benutzter Modus ersetzt den am längsten nicht benutzten. Alle Modi stehen weiter in der Liste darunter. Ein `*` am Button heißt: Werte angepasst.
+- **Ausgeschlossene Seiten:** Auf Domains in dieser Liste läuft nichts, auch wenn ein Modus an ist. Eine Domain gilt mit allen Subdomains (`zoom.us` deckt `us02web.zoom.us` ab), auch für eingebettete Videos von dort. Hinzufügen per Eingabe oder mit dem Button „… ausschließen“ für die aktuelle Seite.
+- **Statistik:** Ganz unten im Popup. Für den Tab und insgesamt: gesparte Zeit getrennt nach Normal- und Stille-Geschwindigkeit (gegenüber 1x), abgespielte Medienzeit, echte Zeit und Anzahl übersprungener Stillen. Die Spul-Taste zählt als Stille.
 - **Modi:** Benannte Wertesätze. Einen Modus laden, einzelne Regler anpassen (das Popup zeigt dann „(geändert)“), mit *Speichern* übernehmen oder mit *Zurücksetzen* verwerfen. Der Modus mit ★ ist der Standard für neue Tabs.
 - **Weiche Übergänge:** Für „Stille an“ und „Stille aus“ gibt es getrennt eine Dauer und eine Bézier-Kurve. Die Kurve wird im Editor gezogen oder als Preset gewählt.
 - **Pause und Play:** Während Pause, Spulen und Puffern ist die Erkennung eingefroren. Nach Play ist sofort normale Geschwindigkeit und volle Lautstärke da. Die *Schonzeit* verhindert, dass ein ruhiger Anfang gleich übersprungen wird.
 - **Dynamischer Schwellwert:** Der Schwellwert passt sich an das Grundrauschen der Aufnahme an: 15. Perzentil der letzten 10 s plus „Abstand zum Rauschen“, begrenzt auf −60 bis −20 dB.
 - **Hysterese:** Stille endet erst, wenn der Pegel um diesen Wert über dem Schwellwert liegt. So springt der Zustand an der Grenze nicht hin und her.
 - **Stille stummschalten** mit optionalem **Lookahead:** Der Ton wird um 60 ms verzögert, damit das Einblenden vor der ersten Silbe fertig ist.
-- **Pegelanzeige** mit Schwellwert-Linie (gelb) und Hysterese-Linie (dünn) sowie die **gesparte Zeit** pro Tab.
+- **Pegelanzeige** mit Schwellwert-Linie (gelb) und Hysterese-Linie (dünn).
 - **Spul-Taste (optional):** Solange du eine selbst gewählte Taste hältst, gilt die Stelle als Stille: Stille-Geschwindigkeit, mit Übergangskurven und ggf. stumm. Loslassen gibt die Kontrolle an die automatische Erkennung zurück. Im Popup unter „Spul-Taste“ einschalten und mit „Taste festlegen“ eine Taste wählen, auch mit Strg/Alt/Shift (nicht mit Cmd: macOS meldet das Loslassen dann nicht zuverlässig). Wirkt, wenn die Webseite den Fokus hat, auch auf Videos in iframes; nicht beim Tippen in Eingabefeldern. Die Seite selbst bekommt die Taste nicht, und nur echte Tastendrücke zählen – Skripte der Seite können die Spul-Taste nicht auslösen. Die Taste wirkt auch auf stumme Videos (bewusstes Vorspulen).
-- **Tastenkürzel** `Alt+Shift+S` schaltet den aktuellen Tab an oder aus. Änderbar unter `about:addons` → Zahnrad → *Tastenkombinationen für Erweiterungen verwalten*.
+- **Tastenkürzel** `Alt+Shift+S` schaltet den aktuellen Tab an oder aus (mit dem zuletzt gewählten Modus). Änderbar unter `about:addons` → Zahnrad → *Tastenkombinationen für Erweiterungen verwalten*.
 
 ## Installation
 
@@ -64,6 +67,8 @@ Alternativ: In Firefox Developer Edition oder Nightly unter `about:config` `xpin
 | Logik Ton/Stille | `lib/detector.js` |
 | Geschwindigkeit, Lautstärke, Übergänge | `content.js` (`MediaController`) |
 | Tab-Zustände, Modi, Kürzel | `background.js` |
+| Schnellwahl (Anzahl Buttons) | `lib/modes.js` (`SS.QUICK_SLOTS`) |
+| Ausschlussliste, Statistik | `lib/sites.js`, `lib/stats.js` |
 | Oberfläche | `popup/` |
 
 Nach Änderungen das Add-on unter `about:debugging` mit *Neu laden* aktualisieren.

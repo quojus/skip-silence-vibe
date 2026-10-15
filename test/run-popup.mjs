@@ -9,7 +9,7 @@ const SCREENSHOT = "test/output/popup.png";
 
 const root = new URL("..", import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), "utf8");
-const init = ["test/popup-stub.js", "lib/defaults.js", "lib/modes.js", "background.js"].map(read).join("\n;\n");
+const init = ["test/popup-stub.js", "lib/defaults.js", "lib/modes.js", "lib/sites.js", "lib/stats.js", "background.js"].map(read).join("\n;\n");
 
 const errors = [];
 const check = (cond, text) => {
@@ -41,14 +41,19 @@ const settle = () => page.waitForTimeout(250);
 
 check((await page.textContent("#mode")).includes("Standard ★"), "Standard-Modus vorhanden und markiert");
 
-await page.click("header .switch-row");
+const quickNames = () => page.$$eval("#quick button", (bs) => bs.map((b) => b.textContent));
+check(JSON.stringify(await quickNames()) === '["Standard","Aus"]', `Schnellwahl zeigt Standard und Aus (${await quickNames()})`);
+check(await page.evaluate(() => document.getElementById("btnOff").classList.contains("active")), "Neuer Tab: Aus ist aktiv");
+await page.click("#quick button.mode");
 await settle();
-check((await lastApply())?.enabled === true, "Einschalten sendet enabled=true an den Tab");
+check((await lastApply())?.enabled === true, "Klick auf Modus-Button schaltet den Tab ein");
+check(await page.evaluate(() => document.querySelector("#quick button.mode").classList.contains("active")), "Modus-Button ist markiert");
 
 await setRange("Normalgeschwindigkeit", "1.5");
 await settle();
 check((await lastApply())?.values.normalSpeed === 1.5, "Regler sendet neuen Wert");
 check((await page.textContent("#modeStatus")) === "(geändert)", "Status zeigt (geändert)");
+check((await quickNames())[0] === "Standard*", "Schnellwahl markiert angepasste Werte mit *");
 check(!(await page.isDisabled("#btnSave")), "Speichern ist aktiv");
 
 await page.click("#btnSaveAs");
@@ -58,6 +63,7 @@ await settle();
 const podcastId = await page.inputValue("#mode");
 check((await page.textContent("#mode")).includes("Podcast"), "Modus Podcast angelegt und geladen");
 check((await page.textContent("#modeStatus")) === "", "Nach Speichern unter kein (geändert)");
+check(JSON.stringify(await quickNames()) === '["Standard","Podcast","Aus"]', `Neuer Modus erscheint in der Schnellwahl (${await quickNames()})`);
 
 await page.click("#btnSaveAs");
 await page.fill("#saveAsName", "podcast");
@@ -138,6 +144,58 @@ check(optionTexts.includes("Standard ★"), "Standard ist wieder Standard-Modus"
 
 await page.waitForTimeout(300);
 check((await page.textContent("#meterStatus")) === "Ton", "Pegelanzeige zeigt Ton");
+
+// Schnellwahl: Aus und wieder an
+await page.click("#btnOff");
+await settle();
+check((await lastApply())?.enabled === false, "Aus schaltet den Tab aus");
+check(await page.evaluate(() => document.getElementById("btnOff").classList.contains("active")), "Aus ist markiert");
+await page.click("#quick button.mode");
+await settle();
+check((await lastApply())?.enabled === true, "Modus-Button schaltet wieder ein");
+
+// Ausgeschlossene Seiten
+check((await page.textContent("#btnExcludeHere")).includes("example.org"), "Button bietet die aktuelle Seite an (ohne www)");
+await page.click("#btnExcludeHere");
+await settle();
+check((await lastApply())?.topExcluded === true, "Ausschließen meldet dem Tab den Ausschluss");
+check(await page.isVisible("#excludedNote"), "Hinweis „ausgeschlossen“ sichtbar");
+check((await page.textContent("#siteList")).includes("example.org"), "Seite steht in der Liste");
+await page.click("#btnInclude");
+await settle();
+check((await lastApply())?.topExcluded === false, "Zulassen hebt den Ausschluss auf");
+check(!(await page.isVisible("#excludedNote")), "Hinweis verschwindet");
+await page.fill("#siteInput", "https://www.Zoom.us/j/1");
+await page.click("#siteForm button[type=submit]");
+await settle();
+check((await page.textContent("#siteList")).includes("zoom.us"), "Domain per Eingabe hinzugefügt");
+check((await page.inputValue("#siteInput")) === "", "Eingabefeld danach leer");
+await page.fill("#siteInput", "kein host");
+await page.click("#siteForm button[type=submit]");
+await settle();
+check((await page.textContent("#msg")).includes("Keine gültige Domain"), "Ungültige Domain wird abgelehnt");
+await page.click('#siteList button[aria-label="zoom.us entfernen"]');
+await settle();
+check(!(await page.textContent("#siteList")).includes("zoom.us"), "× entfernt die Domain");
+
+// Statistik
+await page.evaluate(() =>
+  globalThis.__contentSend({
+    type: "addStats",
+    stats: { normalRealS: 60, normalMediaS: 90, silenceRealS: 10, silenceMediaS: 40, silences: 3 },
+  }),
+);
+check(!(await page.isVisible("#statsBox")), "Statistik ist zu Beginn eingeklappt");
+await page.click("#btnStats");
+await settle();
+const statsRows = await page.$$eval("#statsBody tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent)));
+const row = (label) => statsRows.find((r) => r[0] === label) || [];
+check(row("Gespart: Normal-Speed")[1] === "30 s", `Gespart Normal (${row("Gespart: Normal-Speed")})`);
+check(row("Gespart: Stille-Speed")[1] === "30 s", `Gespart Stille (${row("Gespart: Stille-Speed")})`);
+check(row("Gespart gesamt")[2] === "1 min 0 s", `Gespart insgesamt (${row("Gespart gesamt")})`);
+check(row("Medienzeit")[1] === "2 min 10 s", `Medienzeit (${row("Medienzeit")})`);
+check(row("Echte Zeit")[1] === "1 min 10 s", `Echte Zeit (${row("Echte Zeit")})`);
+check(row("Stillen übersprungen")[2] === "3", `Stillen (${row("Stillen übersprungen")})`);
 
 // Spul-Taste festlegen: Klick, Taste drücken; Esc bricht ab; Schalter aus
 await page.click("#holdCapture");

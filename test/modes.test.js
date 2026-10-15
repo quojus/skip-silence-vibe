@@ -45,3 +45,49 @@ test("valuesEqual vergleicht tief", () => {
   const b = V(); b.rampIn.bezier[1] = 0.1;
   assert.ok(!SS.valuesEqual(V(), b));
 });
+
+// ---------- Schnellwahl ----------
+
+function storeWith(names) {
+  let s = SS.createInitialStore();
+  const ids = { Standard: s.defaultModeId };
+  for (const n of names) {
+    const r = SS.saveModeAs(s, n, V());
+    s = r.store;
+    ids[n] = r.id;
+  }
+  return { s, ids };
+}
+
+test("Schnellwahl füllt freie Plätze alphabetisch auf, höchstens 4", () => {
+  const { s, ids } = storeWith(["E", "B", "D", "C", "A"]);
+  assert.deepEqual(SS.quickModeIds(s), [ids.A, ids.B, ids.C, ids.D]);
+});
+
+test("Benutzter Modus bleibt an seinem Platz, neuer ersetzt den ältesten", () => {
+  const { s: s0, ids } = storeWith(["A", "B", "C", "D", "E"]);
+  let s = SS.touchQuickSlot(s0, ids.C, 10); // Plätze A B C D, C benutzt
+  assert.deepEqual(SS.quickModeIds(s), [ids.A, ids.B, ids.C, ids.D]);
+  s = SS.touchQuickSlot(s, ids.A, 20);
+  s = SS.touchQuickSlot(s, ids.D, 30);
+  s = SS.touchQuickSlot(s, ids.B, 40);
+  s = SS.touchQuickSlot(s, ids.E, 50); // ersetzt C (am längsten nicht benutzt)
+  assert.deepEqual(SS.quickModeIds(s), [ids.A, ids.B, ids.E, ids.D]);
+  s = SS.touchQuickSlot(s, ids.Standard, 60); // ersetzt A
+  assert.deepEqual(SS.quickModeIds(s), [ids.Standard, ids.B, ids.E, ids.D]);
+  code(() => SS.touchQuickSlot(s, "x", 70), "unknown-mode");
+});
+
+test("Löschen entfernt den Modus aus der Schnellwahl, andere bleiben stehen", () => {
+  const { s: s0, ids } = storeWith(["A", "B", "C", "D", "E"]);
+  let s = SS.touchQuickSlot(s0, ids.E, 10); // ersetzt A (alle anderen ungenutzt)
+  assert.deepEqual(SS.quickModeIds(s), [ids.E, ids.B, ids.C, ids.D]);
+  s = SS.deleteMode(s, ids.B);
+  assert.deepEqual(SS.quickModeIds(s), [ids.E, ids.C, ids.D, ids.A]);
+});
+
+test("Kaputte gespeicherte Plätze werden bereinigt", () => {
+  const { s, ids } = storeWith(["A"]);
+  const dirty = { ...s, quickSlots: [null, { id: "weg" }, { id: ids.A, used: "x" }, { id: ids.A, used: 5 }] };
+  assert.deepEqual(SS.cleanSlots(dirty), [{ id: ids.A, used: 0 }]);
+});

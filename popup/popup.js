@@ -1,4 +1,4 @@
-// Popup: Einstellungen des aktuellen Tabs, Modi, Pegelanzeige.
+// Popup: Schnellwahl, Einstellungen des aktuellen Tabs, Modi, Pegelanzeige, Statistik.
 (() => {
   const DEBOUNCE_MS = 50;
   const LEVEL_POLL_MS = 66; // ~15 Hz
@@ -14,6 +14,8 @@
     "no-mode": "Kein Modus geladen.",
     "bad-key": "Diese Taste lässt sich nicht verwenden.",
     "meta-key": "Cmd-Kombinationen gehen nicht (macOS meldet das Loslassen nicht zuverlässig).",
+    "bad-host": "Keine gültige Domain.",
+    "too-many-hosts": "Die Liste ist voll.",
   };
 
   const $ = (id) => document.getElementById(id);
@@ -52,6 +54,7 @@
   let tab = null;
   let modes = {};
   let defaultModeId = null;
+  let popup = {}; // übrige Felder aus getPopupState (Schnellwahl, Ausschlüsse, Statistik)
   let values = SS.clampValues();
   let sendTimer = null;
   const controls = {}; // key → {input, value, wrap, hint}
@@ -80,6 +83,7 @@
     tab = res.tab;
     modes = res.modes;
     defaultModeId = res.defaultModeId;
+    popup = res;
     if (withValues) values = SS.clampValues(tab.values);
     render();
   }
@@ -305,17 +309,19 @@
 
   // ---------- Darstellung ----------
 
-  function formatSaved(sec) {
-    const s = Math.round(sec);
-    if (s < 60) return `${s} s gespart`;
-    if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s gespart`;
-    return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min gespart`;
+  function formatDuration(sec) {
+    const sign = sec < 0 ? "−" : "";
+    const s = Math.round(Math.abs(sec));
+    if (s < 60) return `${sign}${s} s`;
+    if (s < 3600) return `${sign}${Math.floor(s / 60)} min ${s % 60} s`;
+    return `${sign}${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
   }
 
   function render() {
     if (!tab) return;
-    $("enabled").checked = tab.enabled;
-    $("saved").textContent = formatSaved(tab.savedSeconds);
+    renderQuick();
+    renderSites();
+    renderStats();
 
     for (const s of SLIDERS) {
       const c = controls[s.toggle || s.key];
@@ -349,6 +355,99 @@
     renderModes();
   }
 
+  /** Modus des Tabs hat angepasste Werte (Anzeige „(geändert)“). */
+  function modeChanged() {
+    const mode = modes[tab.modeId];
+    return mode ? !SS.valuesEqual(values, SS.clampValues(mode.values)) : false;
+  }
+
+  let quickKey = "";
+  function renderQuick() {
+    const ids = (popup.quickModeIds || []).filter((id) => modes[id]);
+    const changed = modeChanged();
+    // Nur neu aufbauen, wenn sich etwas geändert hat – sonst geht ein Klick mitten im Aufbau verloren
+    const key = JSON.stringify([ids.map((id) => modes[id].name), ids, tab.enabled, tab.modeId, changed]);
+    if (key !== quickKey) {
+      quickKey = key;
+      const box = $("quick");
+      for (const b of box.querySelectorAll("button.mode")) b.remove();
+      for (const id of ids) {
+        const b = document.createElement("button");
+        b.className = "mode";
+        b.dataset.modeId = id;
+        const active = tab.enabled && tab.modeId === id;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-pressed", String(active));
+        b.textContent = active && changed ? `${modes[id].name}*` : modes[id].name;
+        b.title = active && changed ? `${modes[id].name} (geändert)` : modes[id].name;
+        b.addEventListener("click", () => action({ type: "activateMode", modeId: id }, tab.modeId !== id));
+        box.insertBefore(b, $("btnOff"));
+      }
+      $("btnOff").classList.toggle("active", !tab.enabled);
+      $("btnOff").setAttribute("aria-pressed", String(!tab.enabled));
+    }
+    $("excludedNote").classList.toggle("hidden", !popup.excluded);
+    $("excludedText").textContent = popup.excluded ? `${popup.host} ist ausgeschlossen – hier läuft nichts.` : "";
+    // Zulassen nur, wenn die Seite direkt in der Liste steht (sonst über die übergeordnete Domain)
+    $("btnInclude").classList.toggle("hidden", !(popup.excludedHosts || []).includes(popup.host));
+  }
+
+  let sitesKey = "";
+  function renderSites() {
+    const list = popup.excludedHosts || [];
+    const key = JSON.stringify(list);
+    if (key !== sitesKey) {
+      sitesKey = key;
+      const ul = $("siteList");
+      ul.textContent = "";
+      for (const host of list) {
+        const li = document.createElement("li");
+        const name = document.createElement("span");
+        name.textContent = host;
+        const del = document.createElement("button");
+        del.textContent = "×";
+        del.title = `${host} wieder zulassen`;
+        del.setAttribute("aria-label", `${host} entfernen`);
+        del.addEventListener("click", () => action({ type: "includeHost", host }, false));
+        li.append(name, del);
+        ul.append(li);
+      }
+      ul.classList.toggle("hidden", list.length === 0);
+    }
+    const here = $("btnExcludeHere");
+    here.classList.toggle("hidden", !popup.host || popup.excluded);
+    here.textContent = popup.host ? `„${popup.host}“ ausschließen` : "";
+  }
+
+  function renderStats() {
+    if ($("statsBox").classList.contains("hidden")) return;
+    const t = SS.statsSummary(SS.addStats(tab.stats, null));
+    const a = SS.statsSummary(SS.addStats(popup.totalStats, null));
+    const rows = [
+      ["Gespart: Normal-Speed", formatDuration(t.savedNormal), formatDuration(a.savedNormal)],
+      ["Gespart: Stille-Speed", formatDuration(t.savedSilence), formatDuration(a.savedSilence)],
+      ["Gespart gesamt", formatDuration(t.savedTotal), formatDuration(a.savedTotal), "sum"],
+      ["Medienzeit", formatDuration(t.mediaS), formatDuration(a.mediaS)],
+      ["Echte Zeit", formatDuration(t.realS), formatDuration(a.realS)],
+      ["Stillen übersprungen", de(t.silences, 0), de(a.silences, 0)],
+    ];
+    const body = $("statsBody");
+    body.textContent = "";
+    for (const [label, tabVal, allVal, cls] of rows) {
+      const tr = document.createElement("tr");
+      if (cls) tr.className = cls;
+      for (const text of [label, tabVal, allVal]) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+    $("statsSince").textContent = popup.statsSince
+      ? `Medienzeit: so viel lief ab · Echte Zeit: so lange hat es gedauert. „Tab“ seit dem Öffnen des Tabs, „Gesamt“ seit ${new Date(popup.statsSince).toLocaleDateString("de-DE")}`
+      : "";
+  }
+
   let modeOptionsKey = "";
   function renderModes() {
     const select = $("mode");
@@ -373,7 +472,7 @@
       }
     }
     select.value = mode ? tab.modeId : "";
-    const changed = mode ? !SS.valuesEqual(values, SS.clampValues(mode.values)) : false;
+    const changed = modeChanged();
     $("modeStatus").textContent = changed ? "(geändert)" : "";
     $("btnSave").disabled = !mode || !changed;
     $("btnReset").disabled = !mode || !changed;
@@ -400,7 +499,8 @@
     if (!info.reachable) status.textContent = "Auf dieser Seite nicht verfügbar";
     else if (info.mediaCount === 0) status.textContent = "Kein Medium gefunden";
     else if (!hasSample && info.unsupported > 0) status.textContent = "Medium nicht unterstützt (fremde Quelle)";
-    else if (!tab.enabled) status.textContent = "Aus – zum Messen einschalten";
+    else if (popup.excluded) status.textContent = "Seite ausgeschlossen";
+    else if (!tab.enabled) status.textContent = "Aus – zum Messen einen Modus wählen";
     else if (!hasSample) status.textContent = "Warte auf Wiedergabe …";
     if (!hasSample) return;
 
@@ -463,9 +563,25 @@
   // ---------- Ereignisse ----------
 
   function wireEvents() {
-    $("enabled").addEventListener("change", (e) => action({ type: "setEnabled", enabled: e.target.checked }, false));
+    $("btnOff").addEventListener("click", () => action({ type: "setEnabled", enabled: false }, false));
     $("mode").addEventListener("change", (e) => {
-      if (e.target.value) action({ type: "loadMode", modeId: e.target.value }, true);
+      if (e.target.value) action({ type: "activateMode", modeId: e.target.value }, true);
+    });
+    $("btnInclude").addEventListener("click", () => action({ type: "includeHost", host: popup.host }, false));
+    $("btnExcludeHere").addEventListener("click", () => action({ type: "excludeHost", host: popup.host }, false));
+    $("siteForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (await action({ type: "excludeHost", host: $("siteInput").value }, false)) $("siteInput").value = "";
+    });
+    $("btnStats").addEventListener("click", () => {
+      const box = $("statsBox");
+      box.classList.toggle("hidden");
+      $("btnStats").setAttribute("aria-expanded", String(!box.classList.contains("hidden")));
+      renderStats();
+      if (!box.classList.contains("hidden")) {
+        box.scrollIntoView({ block: "nearest" });
+        pollState(); // frische Zahlen, nicht erst mit der nächsten Abfrage
+      }
     });
     $("btnSave").addEventListener("click", () => action({ type: "saveMode" }, false));
     $("btnReset").addEventListener("click", () => action({ type: "resetToMode" }, true));

@@ -21,6 +21,8 @@
     // kurze Schonzeit: nach dem Sprung in die Stille bleibt genug Zeit bis 2 s
     holdmute: { muteSilence: true, lookahead: true, graceMs: 50, holdKey: { enabled: true, code: "KeyH" } },
     seeksilence: { muteSilence: false },
+    excluded: { muteSilence: false },
+    stats: { muteSilence: false, silenceSpeed: 3 },
     // langsames Spulen, damit die Prüfung sicher im Ton (vor 1 s) bleibt
     holdecho: { muteSilence: false, silenceSpeed: 1.5, holdKey: { enabled: true, code: "KeyH" } },
   };

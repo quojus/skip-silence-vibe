@@ -3,8 +3,8 @@
 (() => {
   const TAB_PREFIX = "tab:";
   const MAX_FRAMES = 50;
-  const MAX_SAVED_PER_MSG_S = 3600;
   const BADGE_COLOR = "#3d8b5f";
+  const STATS_SINCE_KEY = "statsSince";
 
   let queue = Promise.resolve();
   function run(fn) {
@@ -25,11 +25,11 @@
 
   async function loadStore() {
     if (storeCache) return storeCache;
-    const data = await browser.storage.local.get(["modes", "defaultModeId"]);
+    const data = await browser.storage.local.get(["modes", "defaultModeId", "quickSlots"]);
     const modes = data.modes && typeof data.modes === "object" ? data.modes : null;
     if (modes && Object.keys(modes).length > 0) {
       const defaultModeId = modes[data.defaultModeId] ? data.defaultModeId : Object.keys(modes)[0];
-      storeCache = { modes, defaultModeId };
+      storeCache = { modes, defaultModeId, quickSlots: SS.cleanSlots({ modes, quickSlots: data.quickSlots }) };
       if (defaultModeId !== data.defaultModeId) await browser.storage.local.set(storeCache);
     } else {
       storeCache = SS.createInitialStore();
@@ -41,6 +41,59 @@
   async function putStore(store) {
     storeCache = store;
     await browser.storage.local.set(store);
+  }
+
+  /** Modus als zuletzt benutzt vermerken (Schnellwahl-Buttons). */
+  async function touchMode(id) {
+    const store = await loadStore();
+    if (store.modes[id]) await putStore(SS.touchQuickSlot(store, id, Date.now()));
+  }
+
+  // ---------- Ausgeschlossene Seiten ----------
+
+  let excludedCache = null;
+
+  async function loadExcluded() {
+    if (!excludedCache) {
+      const data = await browser.storage.local.get("excludedHosts");
+      excludedCache = SS.cleanExcluded(data.excludedHosts);
+    }
+    return excludedCache;
+  }
+
+  async function putExcluded(list) {
+    excludedCache = SS.cleanExcluded(list);
+    await browser.storage.local.set({ excludedHosts: excludedCache });
+    // Alle Tabs neu informieren – ihre Seiten können betroffen sein
+    const all = await browser.storage.session.get(null);
+    for (const [key, tab] of Object.entries(all)) {
+      if (key.startsWith(TAB_PREFIX)) await putTab(Number(key.slice(TAB_PREFIX.length)), tab, true);
+    }
+  }
+
+  /** URL der Seite im Tab; ohne Zugriff (Berechtigung, Tab weg) null. */
+  async function tabUrl(tabId) {
+    try {
+      return (await browser.tabs.get(tabId)).url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ---------- Statistik ----------
+
+  let totalCache = null;
+
+  async function loadTotal() {
+    if (!totalCache) {
+      const data = await browser.storage.local.get(["stats", STATS_SINCE_KEY]);
+      totalCache = { stats: SS.addStats(data.stats, null), since: data[STATS_SINCE_KEY] ?? null };
+      if (!totalCache.since) {
+        totalCache.since = Date.now();
+        await browser.storage.local.set({ [STATS_SINCE_KEY]: totalCache.since });
+      }
+    }
+    return totalCache;
   }
 
   // ---------- Tab-Zustände ----------
@@ -56,7 +109,7 @@
       enabled: false,
       modeId: store.defaultModeId,
       values: SS.clampValues(store.modes[store.defaultModeId].values),
-      savedSeconds: 0,
+      stats: SS.emptyStats(),
       frames: [],
       rev: 0,
     };
@@ -64,29 +117,58 @@
     return tab;
   }
 
+  /**
+   * Zustand für die Content-Scripts. topExcluded: Die Seite im Tab ist ausgeschlossen (gilt
+   * für alle Frames). Die Liste prüft jeder Frame zusätzlich für seine eigene Domain.
+   */
+  function contentState(tab, topUrl, excluded) {
+    return {
+      enabled: tab.enabled,
+      values: tab.values,
+      rev: tab.rev,
+      topExcluded: SS.hostExcluded(SS.hostOfUrl(topUrl), excluded),
+      excludedHosts: excluded,
+    };
+  }
+
   /** Speichert den Zustand. Mit push=true bekommen alle Frames des Tabs die neuen Werte. */
   async function putTab(tabId, tab, push) {
     if (push) tab.rev += 1;
     await browser.storage.session.set({ [keyOf(tabId)]: tab });
     if (push) {
-      browser.tabs
-        .sendMessage(tabId, {
-          type: "applyState",
-          state: { enabled: tab.enabled, values: tab.values, rev: tab.rev },
-        })
-        .catch(() => {});
-      updateBadge(tabId, tab);
+      const [url, excluded] = await Promise.all([tabUrl(tabId), loadExcluded()]);
+      const state = contentState(tab, url, excluded);
+      browser.tabs.sendMessage(tabId, { type: "applyState", state }).catch(() => {});
+      updateBadge(tabId, tab, state.topExcluded);
     }
   }
 
-  function updateBadge(tabId, tab) {
-    browser.action.setBadgeText({ tabId, text: tab.enabled ? "ON" : "" }).catch(() => {});
+  function updateBadge(tabId, tab, excluded) {
+    browser.action.setBadgeText({ tabId, text: tab.enabled && !excluded ? "ON" : "" }).catch(() => {});
     browser.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR }).catch(() => {});
   }
 
   async function popupState(tabId) {
-    const [tab, store] = await Promise.all([getTab(tabId), loadStore()]);
-    return { ok: true, tab, modes: store.modes, defaultModeId: store.defaultModeId };
+    const [tab, store, excluded, total, url] = await Promise.all([
+      getTab(tabId),
+      loadStore(),
+      loadExcluded(),
+      loadTotal(),
+      tabUrl(tabId),
+    ]);
+    const host = SS.hostOfUrl(url);
+    return {
+      ok: true,
+      tab,
+      modes: store.modes,
+      defaultModeId: store.defaultModeId,
+      quickModeIds: SS.quickModeIds(store),
+      excludedHosts: excluded,
+      host: host ? SS.normalizeHost(host) : null,
+      excluded: SS.hostExcluded(host, excluded),
+      totalStats: total.stats,
+      statsSince: total.since,
+    };
   }
 
   function requireTabId(msg) {
@@ -97,9 +179,12 @@
   // ---------- Nachrichten ----------
 
   const contentHandlers = {
-    async getTabState(msg, tabId) {
-      const tab = await getTab(tabId);
-      return { enabled: tab.enabled, values: tab.values, rev: tab.rev };
+    async getTabState(msg, tabId, frameId, sender) {
+      const [tab, excluded] = await Promise.all([getTab(tabId), loadExcluded()]);
+      // Der Hauptframe kennt seine eigene URL sicher; sender.tab.url kann bei einer Navigation
+      // noch die alte Seite sein.
+      const topUrl = frameId === 0 ? sender.url : sender.tab?.url;
+      return contentState(tab, topUrl, excluded);
     },
     async registerFrame(msg, tabId, frameId) {
       const tab = await getTab(tabId);
@@ -114,12 +199,15 @@
       browser.tabs.sendMessage(tabId, { type: "hold", on: !!msg.on }).catch(() => {});
       return { ok: true };
     },
-    async addSaved(msg, tabId) {
-      const s = Number(msg.seconds);
-      if (!Number.isFinite(s) || s <= 0) return { ok: true };
+    async addStats(msg, tabId) {
+      const delta = SS.cleanStatsDelta(msg.stats);
+      if (SS.isEmptyStats(delta)) return { ok: true };
       const tab = await getTab(tabId);
-      tab.savedSeconds += Math.min(s, MAX_SAVED_PER_MSG_S);
+      tab.stats = SS.addStats(tab.stats, delta);
       await putTab(tabId, tab, false);
+      const total = await loadTotal();
+      total.stats = SS.addStats(total.stats, delta);
+      await browser.storage.local.set({ stats: total.stats });
       return { ok: true };
     },
   };
@@ -145,6 +233,26 @@
       const tab = await getTab(tabId);
       tab.enabled = !!msg.enabled;
       await putTab(tabId, tab, true);
+      if (tab.enabled && tab.modeId) await touchMode(tab.modeId);
+      return popupState(tabId);
+    },
+    /**
+     * Schnellwahl: Modus einschalten. Ist er schon der Modus des Tabs, bleiben angepasste
+     * Werte erhalten; sonst werden seine Werte geladen.
+     */
+    async activateMode(msg) {
+      const tabId = requireTabId(msg);
+      const store = await loadStore();
+      const mode = store.modes[msg.modeId];
+      if (!mode) throw fail("unknown-mode");
+      const tab = await getTab(tabId);
+      if (tab.modeId !== msg.modeId) {
+        tab.modeId = msg.modeId;
+        tab.values = SS.clampValues(mode.values);
+      }
+      tab.enabled = true;
+      await putTab(tabId, tab, true);
+      await touchMode(msg.modeId);
       return popupState(tabId);
     },
     async setValues(msg) {
@@ -163,6 +271,7 @@
       tab.modeId = msg.modeId;
       tab.values = SS.clampValues(mode.values);
       await putTab(tabId, tab, true);
+      await touchMode(msg.modeId);
       return popupState(tabId);
     },
     async saveMode(msg) {
@@ -179,6 +288,7 @@
       await putStore(store);
       tab.modeId = id;
       await putTab(tabId, tab, false);
+      await touchMode(id);
       return popupState(tabId);
     },
     async resetToMode(msg) {
@@ -207,6 +317,22 @@
       if (Object.keys(updates).length) await browser.storage.session.set(updates);
       return popupState(requireTabId(msg));
     },
+    async excludeHost(msg) {
+      const host = SS.normalizeHost(msg.host);
+      if (!host) throw fail("bad-host");
+      const list = await loadExcluded();
+      if (!list.includes(host)) {
+        if (list.length >= SS.MAX_EXCLUDED) throw fail("too-many-hosts");
+        await putExcluded([...list, host]);
+      }
+      return popupState(requireTabId(msg));
+    },
+    async includeHost(msg) {
+      const host = SS.normalizeHost(msg.host);
+      const list = await loadExcluded();
+      if (host && list.includes(host)) await putExcluded(list.filter((h) => h !== host));
+      return popupState(requireTabId(msg));
+    },
   };
 
   function isExtensionPage(sender) {
@@ -219,7 +345,7 @@
     if (Object.hasOwn(contentHandlers, msg.type)) {
       const tabId = sender.tab?.id;
       if (!Number.isInteger(tabId)) return undefined;
-      return run(() => contentHandlers[msg.type](msg, tabId, sender.frameId ?? 0));
+      return run(() => contentHandlers[msg.type](msg, tabId, sender.frameId ?? 0, sender));
     }
 
     if (Object.hasOwn(popupHandlers, msg.type)) {
@@ -242,11 +368,13 @@
   // Firefox setzt tab-spezifische Badges bei Navigation zurück.
   // Veraltete Frame-IDs entfernt das Popup per dropFrames (ein Zurücksetzen hier
   // könnte die Anmeldung der neuen Seite überholen).
-  browser.tabs.onUpdated.addListener((tabId, info) => {
+  browser.tabs.onUpdated.addListener((tabId, info, tabInfo) => {
     if (info.status !== "loading") return;
     run(async () => {
       const data = await browser.storage.session.get(keyOf(tabId));
-      if (data[keyOf(tabId)]) updateBadge(tabId, data[keyOf(tabId)]);
+      if (!data[keyOf(tabId)]) return;
+      const excluded = SS.hostExcluded(SS.hostOfUrl(tabInfo?.url), await loadExcluded());
+      updateBadge(tabId, data[keyOf(tabId)], excluded);
     });
   });
 
@@ -258,6 +386,7 @@
         const tab = await getTab(active.id);
         tab.enabled = !tab.enabled;
         await putTab(active.id, tab, true);
+        if (tab.enabled && tab.modeId) await touchMode(tab.modeId);
       });
     });
   });

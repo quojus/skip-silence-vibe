@@ -199,6 +199,39 @@ console.log(`getLevel: ${JSON.stringify(level)}`);
 // DOM + Shadow DOM bleiben bekannt; das pausierte new Audio() (nicht im DOM) wird aufgeräumt
 if (!level || level.mediaCount !== 2) errors.push(`Pegelabfrage: ${level?.mediaCount} statt 2 Medien`);
 
+// Statistik: Die Wiedergaben oben müssen im Tab und insgesamt angekommen sein
+const st = await popup(`async () => browser.runtime.sendMessage({ type: "getPopupState", tabId: ${testTabId} })`);
+const statsOk = st.tab.stats.silences > 0 && st.tab.stats.silenceMediaS > st.tab.stats.silenceRealS && st.totalStats.silences >= st.tab.stats.silences;
+console.log(`${statsOk ? "✔" : "✖"} Statistik: ${JSON.stringify(st.tab.stats)}`);
+if (!statsOk) errors.push("Statistik kommt nicht im Background an");
+
+// Ausgeschlossene Seite: Der Background kennt die URL des Tabs (ohne „tabs“-Berechtigung)
+const host = new URL(origin).hostname;
+console.log(`${st.host === host ? "✔" : "✖"} Popup kennt die Seite: ${st.host}`);
+if (st.host !== host) errors.push(`Popup kennt die Seite nicht (${st.host} statt ${host})`);
+const silenceRate = () =>
+  page.evaluate(async () => {
+    const el = window.__players.dom();
+    el.currentTime = 0;
+    await el.play();
+    let maxRate = 0;
+    while (el.currentTime < 1.9) {
+      if (el.currentTime > 1.2) maxRate = Math.max(maxRate, el.playbackRate);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    el.pause();
+    return maxRate;
+  });
+await popup(`async () => browser.runtime.sendMessage({ type: "excludeHost", tabId: ${testTabId}, host: "${host}" })`);
+await page.waitForTimeout(200);
+const excludedRate = await silenceRate();
+await popup(`async () => browser.runtime.sendMessage({ type: "includeHost", tabId: ${testTabId}, host: "${host}" })`);
+await page.waitForTimeout(200);
+const includedRate = await silenceRate();
+const exclOk = Math.abs(excludedRate - 1) < 0.001 && includedRate > 2;
+console.log(`${exclOk ? "✔" : "✖"} Ausgeschlossen: Stille mit ${excludedRate.toFixed(2)}x, wieder zugelassen: ${includedRate.toFixed(2)}x`);
+if (!exclOk) errors.push("Ausschluss der Seite wirkt mit echter Extension nicht");
+
 rdp.close();
 await context.close();
 server.close();

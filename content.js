@@ -42,7 +42,8 @@
   const known = new Set(); // gesehene Medienelemente (wird regelmäßig aufgeräumt)
   const directlyWatched = new WeakSet();
   const rateWatched = new WeakSet();
-  let pendingSavedMs = 0;
+  // Statistik seit der letzten Meldung an den Background (Millisekunden echter Zeit bzw. Medienzeit)
+  let pending = { normalReal: 0, normalMedia: 0, silenceReal: 0, silenceMedia: 0, silences: 0 };
   let maintenanceTimer = null;
   let nextShadowScan = 0;
 
@@ -367,17 +368,23 @@
       if (this.holding) {
         // Spul-Taste: Stille erzwungen, die automatische Erkennung läuft nur im Hintergrund mit
         this.advanceRamp(windowMs);
-        const rate = this.ownRate === RATE_ONE ? 1 : this.ownRate;
-        pendingSavedMs += windowMs * Math.max(0, rate / v.normalSpeed - 1);
       } else if (playing && !hearable) {
         // Ton ohne Ereignis verloren (z. B. Tonspur weg): laufende Beschleunigung beenden
         if (this.ramp || Math.abs(this.ownRate - v.normalSpeed) > 1e-3 || this.gainTarget !== 1) this.resetOutput();
       } else {
         if (res.changed) this.onPhase(res);
         this.advanceRamp(windowMs);
-        if (playing && res.phase === "silence") {
-          const rate = this.ownRate === RATE_ONE ? 1 : this.ownRate;
-          pendingSavedMs += windowMs * Math.max(0, rate / v.normalSpeed - 1);
+      }
+      if (playing) {
+        // Statistik: Spul-Taste zählt als Stille, stumme Medien laufen mit Normalgeschwindigkeit
+        const rate = this.ownRate === RATE_ONE ? 1 : this.ownRate;
+        const asSilence = this.holding || (hearable && res.phase === "silence");
+        if (asSilence) {
+          pending.silenceReal += windowMs;
+          pending.silenceMedia += windowMs * rate;
+        } else {
+          pending.normalReal += windowMs;
+          pending.normalMedia += windowMs * rate;
         }
       }
       // Nur bei messbarem Ton zählen; stumm oder fremd heißt: neu anfangen
@@ -396,6 +403,7 @@
     onPhase(res) {
       const v = this.values;
       if (res.phase === "silence") {
+        pending.silences += 1;
         this.startRamp(v.silenceSpeed, v.rampIn);
         if (v.muteSilence) this.setGain(0, v.rampIn.durationMs / 1000, v.rampIn.bezier);
       } else if (res.instant) {
@@ -698,11 +706,18 @@
 
   // ---------- Zustand, Wartung ----------
 
-  function flushSaved() {
-    if (pendingSavedMs < 50) return;
-    const seconds = pendingSavedMs / 1000;
-    pendingSavedMs = 0;
-    browser.runtime.sendMessage({ type: "addSaved", seconds }).catch(() => {});
+  function flushStats() {
+    const p = pending;
+    if (p.normalReal + p.silenceReal < 50 && p.silences === 0) return;
+    pending = { normalReal: 0, normalMedia: 0, silenceReal: 0, silenceMedia: 0, silences: 0 };
+    const stats = {
+      normalRealS: p.normalReal / 1000,
+      normalMediaS: p.normalMedia / 1000,
+      silenceRealS: p.silenceReal / 1000,
+      silenceMediaS: p.silenceMedia / 1000,
+      silences: p.silences,
+    };
+    browser.runtime.sendMessage({ type: "addStats", stats }).catch(() => {});
   }
 
   function ensureMaintenance() {
@@ -710,7 +725,7 @@
   }
 
   function maintenance() {
-    flushSaved();
+    flushStats();
     prune();
     // Suche in Shadow Roots: Abstand wächst mit ihrer Dauer, damit große Seiten nicht leiden
     if (state.enabled && performance.now() >= nextShadowScan) {
@@ -724,7 +739,9 @@
   function applyState(next) {
     if (!next || typeof next.rev !== "number" || next.rev < state.rev) return;
     const wasEnabled = state.enabled;
-    state = { enabled: !!next.enabled, values: SS.clampValues(next.values), rev: next.rev };
+    // Ausgeschlossene Seite (im Tab oder dieser Frame selbst): wie ausgeschaltet
+    const excluded = !!next.topExcluded || SS.hostExcluded(location.hostname, next.excludedHosts);
+    state = { enabled: !!next.enabled && !excluded, values: SS.clampValues(next.values), rev: next.rev };
     if (!state.values.holdKey.enabled) releaseKey();
 
     if (state.enabled && !wasEnabled) {
@@ -734,7 +751,7 @@
     } else if (!state.enabled && wasEnabled) {
       releaseKey();
       for (const ctrl of controllers.values()) ctrl.stop();
-      flushSaved();
+      flushStats();
     } else if (state.enabled) {
       for (const ctrl of controllers.values()) ctrl.refresh();
     }

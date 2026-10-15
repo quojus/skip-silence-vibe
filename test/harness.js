@@ -511,7 +511,56 @@
     audio.pause();
   }
 
+  // Ausgeschlossene Seite: wirkt wie Ausschalten – über die Tab-URL und über die eigene Domain
+  async function excluded(errors) {
+    await media.play();
+    if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) errors.push("Stille nicht beschleunigt");
+    const state = (rev, extra) => ({ enabled: true, rev, values: globalThis.__values(), ...extra });
+    globalThis.__harnessSend({ type: "applyState", state: state(1, { topExcluded: true, excludedHosts: ["example.org"] }) });
+    await sleep(30);
+    if (media.playbackRate !== 1) errors.push(`Seite im Tab ausgeschlossen: Rate ${media.playbackRate} statt 1`);
+    await waitUntil(() => media.currentTime >= 3.6, 5000);
+    if (media.playbackRate !== 1) errors.push(`Ausgeschlossen: Stille 3–4 s beschleunigt (${media.playbackRate})`);
+
+    // Domain dieses Frames steht in der Liste (z. B. eingebettetes Video einer ausgeschlossenen Seite)
+    globalThis.__harnessSend({ type: "applyState", state: state(2, { topExcluded: false, excludedHosts: [location.hostname] }) });
+    media.currentTime = 0;
+    await waitUntil(() => media.currentTime >= 1.6, 4000);
+    if (media.playbackRate !== 1) errors.push(`Eigene Domain ausgeschlossen: Rate ${media.playbackRate} statt 1`);
+
+    globalThis.__harnessSend({ type: "applyState", state: state(3, { topExcluded: false, excludedHosts: ["example.org"] }) });
+    media.currentTime = 0;
+    if (!(await waitUntil(() => media.currentTime > 1 && media.playbackRate > 2, 4000))) {
+      errors.push("Nach Zulassen keine Beschleunigung");
+    }
+    media.pause();
+  }
+
+  // Statistik: Ton mit Normalgeschwindigkeit, Stille beschleunigt, Anzahl der Stillen
+  async function stats(errors) {
+    await media.play();
+    await waitUntil(() => media.currentTime >= 4.5, 8000);
+    media.pause();
+    const mediaS = media.currentTime;
+    // Ausschalten schickt den Rest der Statistik sofort
+    globalThis.__harnessSend({ type: "applyState", state: { enabled: false, rev: 1, values: globalThis.__values() } });
+    await sleep(50);
+    const sum = { normalRealS: 0, normalMediaS: 0, silenceRealS: 0, silenceMediaS: 0, silences: 0 };
+    for (const m of globalThis.__harnessMessages) {
+      if (m.type !== "addStats") continue;
+      for (const k of Object.keys(sum)) sum[k] += m.stats[k];
+    }
+    const fmt = JSON.stringify(sum, (k, v) => (typeof v === "number" ? Number(v.toFixed(2)) : v));
+    if (sum.silences < 2) errors.push(`Zu wenige Stillen gezählt (${fmt})`);
+    if (Math.abs(sum.normalMediaS / sum.normalRealS - 1) > 0.05) errors.push(`Ton nicht mit 1x gezählt (${fmt})`);
+    if (sum.silenceMediaS / sum.silenceRealS < 1.8) errors.push(`Stille nicht als beschleunigt gezählt (${fmt})`);
+    const counted = sum.normalMediaS + sum.silenceMediaS;
+    if (Math.abs(counted - mediaS) > 0.3) errors.push(`Gezählte Medienzeit ${counted.toFixed(2)} s statt ${mediaS.toFixed(2)} s (${fmt})`);
+  }
+
   const SCENARIOS = {
+    excluded,
+    stats,
     rate,
     mute,
     muted,
